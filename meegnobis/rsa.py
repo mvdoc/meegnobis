@@ -96,7 +96,8 @@ def _compute_fold(epoch, targets, train, test, metric_fx=correlation,
     unique_targets = np.unique(targets)
     n_unique_targets = len(unique_targets)
     n_times = len(epoch.times)
-    n_triu = n_unique_targets * (n_unique_targets - 1) / 2 + n_unique_targets
+    n_triu = int(n_unique_targets * (n_unique_targets - 1) / 2
+                 + n_unique_targets)
     rdms = np.zeros((n_triu, n_times, n_times))
 
     # impose conditions in epoch as targets, so that covariance

@@ -37,8 +37,8 @@ def test_compute_fold(cv_normalize_noise):
              for i in range(n_conditions)]
     test = [np.arange(n_epochs_cond / 2, n_epochs_cond) + i*n_epochs_cond
             for i in range(n_conditions)]
-    train = np.array(train).flatten()
-    test = np.array(test).flatten()
+    train = np.array(train).flatten().astype(int)
+    test = np.array(test).flatten().astype(int)
 
     rdms, target_pairs = _compute_fold(
         epoch, targets, train, test, cv_normalize_noise=cv_normalize_noise)
