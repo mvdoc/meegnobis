@@ -1,47 +1,4 @@
-import mne
-from mne.channels.layout import _pair_grad_sensors, _merge_grad_data
 import numpy as np
-from os.path import join as pjoin, abspath, dirname
-
-
-def get_connectivity(ch_type):
-    here = abspath(dirname(__file__))
-    layout = {
-        'mag': 'neuromag306mag',
-        'grad': 'neuromag306planar',
-        'cmb': pjoin(here, 'neuromag306cmb_neighb.mat')
-    }
-
-    connectivity, ch_names = mne.channels.read_ch_connectivity(layout[ch_type])
-    return connectivity, ch_names
-
-
-def combineplanar(evoked):
-    """Combines planar gradiometer information, discarding magnetometers"""
-    # get pairwise picks
-    picks = _pair_grad_sensors(evoked.info, topomap_coords=False)
-    # sort them
-    picks = sorted(picks)
-    # and get ch_names
-    ch_names = [evoked.ch_names[i] for i in picks]
-    # get them in order
-    evoked_ = evoked.copy().pick_channels(ch_names)
-
-    # merge the data
-    data_merged = _merge_grad_data(evoked_.data)
-    # name them as per fieldtrip syntax
-
-    def lbl(ch1, ch2):
-        return '+'.join((ch1, ch2[3:]))
-    ch_names_merged = [lbl(*sorted(chs)) for chs in
-                       zip(ch_names[:-1:2], ch_names[1::2])]
-
-    # make it evoked
-    info_merged = mne.create_info(ch_names_merged, evoked_.info['sfreq'])
-    evoked_merged = mne.EvokedArray(data_merged, info_merged,
-                                    tmin=evoked_.times[0])
-
-    return evoked_merged
 
 
 def convolve(array, filt):
