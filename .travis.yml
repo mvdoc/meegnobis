@@ -3,6 +3,9 @@ python:
   # We don't actually use the Travis Python, but this keeps it organized.
   - "2.7"
   - "3.6"
+env:
+  - NUMPY_VERSION="1.12.0"
+  - NUMPY_VERSION=""
 install:
   - sudo apt-get update
   # We do this conditionally because it saves us some downloading if the
@@ -19,7 +22,13 @@ install:
   - conda update -q conda
   # Useful for debugging any issues with conda
   - conda info -a
-  - conda install numpy scipy scikit-learn joblib
+  # test against older version of numpy too
+  - conda install scipy scikit-learn joblib
+  - if [[ "$NUMPY_VERSION" == "" ]]; then
+      conda install numpy;
+    else
+      conda install numpy=$NUMPY_VERSION;
+    fi
   - pip install mne pytest codecov mock coverage
 
 script:
