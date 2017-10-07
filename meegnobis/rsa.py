@@ -16,13 +16,6 @@ def fisher_correlation(x, y):
     return np.arctanh(1. - cdist(x, y, metric='correlation'))
 
 
-def _check_targets(targets):
-    # make sure we don't have tuple as labels but strings or integers
-    # to avoid possible bug in scikit-learn
-    for t in targets:
-        assert (isinstance(t, (str, int)))
-
-
 def mean_group(array, targets):
     """Average rows of array according to the unique values of targets
 

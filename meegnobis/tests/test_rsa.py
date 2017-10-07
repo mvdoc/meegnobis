@@ -58,6 +58,24 @@ def test_compute_fold(cv_normalize_noise):
                              cv_normalize_noise=cv_normalize_noise)
 
 
+def test_compute_fold_valuerrorcov():
+    with pytest.raises(ValueError):
+        n_epochs_cond = 10
+        n_conditions = 4
+        epoch = generate_epoch(n_epochs_cond=n_epochs_cond,
+                               n_conditions=n_conditions)
+        targets = epoch.events[:, 2]
+        train = [np.arange(n_epochs_cond / 2) + i*n_epochs_cond
+                 for i in range(n_conditions)]
+        test = [np.arange(n_epochs_cond / 2, n_epochs_cond) + i*n_epochs_cond
+                for i in range(n_conditions)]
+        train = np.array(train).flatten().astype(int)
+        test = np.array(test).flatten().astype(int)
+
+        _ = _compute_fold(epoch, targets, train, test,
+                          cv_normalize_noise='thisshouldfail')
+
+
 @pytest.mark.parametrize("cv_normalize_noise", [None, 'epoch', 'baseline'])
 def test_compute_temporal_rdm(cv_normalize_noise):
     n_epochs_cond = 20
