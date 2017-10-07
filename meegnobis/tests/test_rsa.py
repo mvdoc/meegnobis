@@ -2,11 +2,12 @@
 
 import pytest
 import numpy as np
-from numpy.testing import assert_array_equal, assert_equal
+from numpy.testing import assert_array_equal, assert_equal, \
+    assert_array_almost_equal
 from sklearn.model_selection import StratifiedShuffleSplit
 
 from ..rsa import mean_group, _compute_fold, compute_temporal_rdm,\
-    make_pseudotrials
+    make_pseudotrials, fisher_correlation
 from ..testing import generate_epoch
 
 rng = np.random.RandomState(42)
@@ -107,6 +108,14 @@ def test_make_pseudotrials():
     assert_equal(len(np.unique(avg_targets)), n_conditions)
     assert_equal(len(avg_targets), len(avg_trials))
 
+
+def test_fisher_correlation():
+    for _ in range(10):
+        x = np.random.randn(1, 20)
+        y = x + np.random.randn(*x.shape)/10000
+        out = np.tanh(fisher_correlation(x, y))[0]
+        assert_array_almost_equal([1], out)
+        assert_array_almost_equal(np.corrcoef(x, y)[0, 1], out[0])
 
 
 

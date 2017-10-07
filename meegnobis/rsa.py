@@ -9,12 +9,11 @@ from scipy.spatial.distance import cdist
 from sklearn.model_selection import StratifiedShuffleSplit
 
 
-def correlation(x, y, *args):
+def fisher_correlation(x, y):
+    """Computes correlation between x and y and fisher-transforms the output
+
+    See scipy.spatial.cdist for more information"""
     return np.arctanh(1. - cdist(x, y, metric='correlation'))
-
-
-def euclidean(x, y, *args):
-    return cdist(x, y, metric='euclidean')
 
 
 def _check_targets(targets):
@@ -51,7 +50,7 @@ def mean_group(array, targets):
     return avg_array, unique_targets
 
 
-def _compute_fold(epoch, targets, train, test, metric_fx=correlation,
+def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
                   cv_normalize_noise=None):
     """Computes pairwise metric across time for one fold
 
@@ -142,9 +141,7 @@ def _compute_fold(epoch, targets, train, test, metric_fx=correlation,
             # XXX: we should check whether the metric is symmetric to avoid
             # recomputing everything
             rdm = metric_fx(epo_data_train[..., t1],
-                            epo_data_test[..., t2],
-                            targets_train,
-                            targets_test)
+                            epo_data_test[..., t2])
             rdms[:, t1, t2] = rdm[np.triu_indices_from(rdm)]
             rdms[:, t2, t1] = rdms[:, t1, t2]
             idx += 1
@@ -158,7 +155,7 @@ def _compute_fold(epoch, targets, train, test, metric_fx=correlation,
     return rdms, targets_pairs
 
 
-def compute_temporal_rdm(epoch, targets, metric_fx=correlation,
+def compute_temporal_rdm(epoch, targets, metric_fx=fisher_correlation,
                          cv=StratifiedShuffleSplit(n_splits=10, test_size=0.5),
                          cv_normalize_noise=None,
                          n_jobs=1):
