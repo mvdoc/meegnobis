@@ -97,6 +97,7 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
     events_ = epoch.events.copy()
     events_[:, 2] = targets
     epoch_ = EpochsArray(epoch._data, info=epoch.info, events=events_)
+    epoch_.baseline = epoch.baseline
 
     # get training and testing data
     epoch_train = epoch_.copy()[train]
