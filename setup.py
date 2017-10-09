@@ -9,7 +9,8 @@ REQUIRED_PACKAGES = [
 ]
 
 EXTRA_PACKAGES = {
-    'test': ['pytest']
+    'test': ['pytest',
+             'mock']
 }
 
 setup(

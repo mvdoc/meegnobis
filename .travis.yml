@@ -23,13 +23,15 @@ install:
   # Useful for debugging any issues with conda
   - conda info -a
   # test against older version of numpy too
-  - conda install scipy scikit-learn joblib
+  # - conda install scipy scikit-learn joblib
   - if [[ "$NUMPY_VERSION" == "" ]]; then
-      conda install numpy;
+      pip install numpy;
     else
-      conda install numpy=$NUMPY_VERSION;
+      pip install numpy==$NUMPY_VERSION;
     fi
-  - pip install mne pytest codecov mock coverage
+  # - pip install mne pytest codecov mock coverage
+  - pip install -e '.[test]'
+  - pip install coverage
 
 script:
   - coverage run -m pytest
