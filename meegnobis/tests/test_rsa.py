@@ -5,6 +5,7 @@ import numpy as np
 from numpy.testing import assert_array_equal, assert_equal, \
     assert_array_almost_equal
 from sklearn.model_selection import StratifiedShuffleSplit
+from scipy.spatial.distance import cdist
 
 from ..rsa import mean_group, _compute_fold, compute_temporal_rdm,\
     make_pseudotrials, fisher_correlation
@@ -50,6 +51,13 @@ def test_compute_fold(cv_normalize_noise):
     # target_pairs should be already sorted
     target_pairs_sorted = sorted(target_pairs)
     assert_array_equal(target_pairs, target_pairs_sorted)
+    # we should only get the upper triangular with the diagonal
+    unique_targets = np.unique(targets)
+    target_pairs_ = []
+    for i_tr, tr_lbl in enumerate(unique_targets):
+        for i_te, te_lbl in enumerate(unique_targets[i_tr:]):
+            target_pairs_.append('+'.join(map(str, [tr_lbl, te_lbl])))
+    assert_array_equal(target_pairs_, target_pairs)
 
     # check that it fails if the targets are strings
     targets = map(str, targets)
@@ -74,6 +82,31 @@ def test_compute_fold_valuerrorcov():
 
         _ = _compute_fold(epoch, targets, train, test,
                           cv_normalize_noise='thisshouldfail')
+
+
+def test_compute_fold_values():
+    n_epochs_cond = 1
+    n_conditions = 4
+    n_times = 10
+    epoch = generate_epoch(n_epochs_cond=n_epochs_cond,
+                           n_conditions=n_conditions,
+                           n_times=n_times)
+    targets = epoch.events[:, 2]
+    # let's use the same train and test
+    train = test = np.arange(len(targets))
+
+    rdms, target_pairs = _compute_fold(epoch, targets,
+                                       train, test, metric_fx=cdist)
+
+    epo_data = epoch.get_data()
+    for i_tr in range(n_times):
+        for i_te in range(n_times):
+            rdms_ = cdist(epo_data[..., i_tr], epo_data[..., i_te])
+            # impose symmetry
+            rdms_ += rdms_.T
+            rdms_ /= 2.
+            assert_array_equal(rdms[:, i_tr, i_te],
+                               rdms_[np.triu_indices_from(rdms_)])
 
 
 @pytest.mark.parametrize("cv_normalize_noise", [None, 'epoch', 'baseline'])

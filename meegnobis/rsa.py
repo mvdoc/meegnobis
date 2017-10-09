@@ -135,6 +135,10 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
             # recomputing everything
             rdm = metric_fx(epo_data_train[..., t1],
                             epo_data_test[..., t2])
+            # now we need to impose symmetry
+            rdm += rdm.T
+            rdm /= 2.
+            # now store only the upper triangular matrix
             rdms[:, t1, t2] = rdm[np.triu_indices_from(rdm)]
             rdms[:, t2, t1] = rdms[:, t1, t2]
             idx += 1
@@ -142,8 +146,8 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
     # across rows
     targets_pairs = []
     for i_tr, tr_lbl in enumerate(targets_train):
-        for i_te, te_lbl in enumerate(targets_test[i_tr:]):
-            targets_pairs.append('+'.join(map(str, [i_tr, i_te])))
+        for _, te_lbl in enumerate(targets_test[i_tr:]):
+            targets_pairs.append('+'.join(map(str, [tr_lbl, te_lbl])))
 
     return rdms, targets_pairs
 
