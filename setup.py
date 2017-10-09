@@ -18,7 +18,6 @@ setup(
     version='0.0.1dev',
     packages=['meegnobis'],
     license='Apache License 2.0',
-    long_description=open('README').read(),
     author='Matteo Visconti di Oleggio Castello',
     author_email='mvdoc.gr@dartmouth.edu',
     description='Representational Similarity Analysis using noise-normalized '
