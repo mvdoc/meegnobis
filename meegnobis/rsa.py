@@ -1,4 +1,5 @@
 """Module containing functions for temporal RSA"""
+import logging
 import mne
 import numpy as np
 from itertools import islice
@@ -8,6 +9,10 @@ from numpy.testing import assert_array_equal
 from joblib.parallel import Parallel, delayed
 from scipy.spatial.distance import cdist
 from sklearn.model_selection import StratifiedShuffleSplit
+
+# setup log
+from .log import log
+log.name = __name__
 
 
 def fisher_correlation(x, y):
@@ -110,6 +115,8 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
 
     # perform multi variate noise normalization
     if cv_normalize_noise:
+        log.info("Applying multivariate noise normalization "
+                 "with method '{0}'".format(cv_normalize_noise))
         tmax = 0. if cv_normalize_noise == 'baseline' else None
         cov_train = mne.compute_covariance(epoch_train,
                                            tmax=tmax, method='shrunk')
@@ -133,6 +140,10 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
     idx = 0
     for t1 in range(n_times):
         for t2 in range(t1, n_times):
+            if idx % 100 == 0:
+                log.info("Running RDM for training, testing times "
+                         "({0}, {1})".format(epoch_train.times[t1],
+                                             epoch_test.times[t2]))
             # XXX: we should check whether the metric is symmetric to avoid
             # recomputing everything
             rdm = metric_fx(epo_data_train[..., t1],
@@ -196,9 +207,10 @@ def compute_temporal_rdm(epoch, targets, metric_fx=fisher_correlation,
     # trick from https://stackoverflow.com/questions/14822184/
     # is-there-a-ceiling-equivalent-of-operator-in-python/17511341#17511341
     n_batches = -(-n_splits // batch_size)
-    print("Using n_batches {0}".format(n_batches))
+    log.info("Using n_batches {0}".format(n_batches))
     rdm = None
     for i_batch in range(n_batches):
+        log.info("Running batch {0}/{1}".format(i_batch, n_batches))
         rdm_cv = Parallel(n_jobs=n_jobs)(
             delayed(_compute_fold)(epoch, targets, train, test,
                                    metric_fx=metric_fx,
