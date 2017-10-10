@@ -31,7 +31,7 @@ install:
     fi
   # - pip install mne pytest codecov mock coverage
   - pip install -e '.[test]'
-  - pip install coverage
+  - pip install codecov coverage
 
 script:
   - coverage run -m pytest
