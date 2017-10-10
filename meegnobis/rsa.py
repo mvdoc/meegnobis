@@ -140,7 +140,7 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
     idx = 0
     for t1 in range(n_times):
         for t2 in range(t1, n_times):
-            if idx % 100 == 0:
+            if idx % 1000 == 0:
                 log.info("Running RDM for training, testing times "
                          "({0}, {1})".format(epoch_train.times[t1],
                                              epoch_test.times[t2]))
@@ -210,7 +210,7 @@ def compute_temporal_rdm(epoch, targets, metric_fx=fisher_correlation,
     log.info("Using n_batches {0}".format(n_batches))
     rdm = None
     for i_batch in range(n_batches):
-        log.info("Running batch {0}/{1}".format(i_batch, n_batches))
+        log.info("Running batch {0}/{1}".format(i_batch+1, n_batches))
         rdm_cv = Parallel(n_jobs=n_jobs)(
             delayed(_compute_fold)(epoch, targets, train, test,
                                    metric_fx=metric_fx,
