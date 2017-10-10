@@ -1,5 +1,6 @@
 """Module containing test for rsa"""
 
+import mne
 import pytest
 import numpy as np
 from numpy.testing import assert_array_equal, assert_equal, \
@@ -12,6 +13,7 @@ from ..rsa import mean_group, _compute_fold, compute_temporal_rdm,\
 from ..testing import generate_epoch
 
 rng = np.random.RandomState(42)
+mne.set_log_level("WARNING")
 
 
 def test_mean_group():
@@ -109,21 +111,45 @@ def test_compute_fold_values():
                                rdms_[np.triu_indices_from(rdms_)])
 
 
-@pytest.mark.parametrize("cv_normalize_noise", [None, 'epoch', 'baseline'])
-def test_compute_temporal_rdm(cv_normalize_noise):
+@pytest.mark.parametrize("cv_normalize_noise", (None, 'epoch', 'baseline'))
+@pytest.mark.parametrize("n_splits", (4, 10))
+@pytest.mark.parametrize("batch_size", (2, 5))
+def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size):
     n_epochs_cond = 20
     n_conditions = 4
     epoch = generate_epoch(n_epochs_cond=n_epochs_cond,
                            n_conditions=n_conditions)
-    cv = StratifiedShuffleSplit(n_splits=4, test_size=0.5)
+    cv = StratifiedShuffleSplit(n_splits=n_splits, test_size=0.5)
 
     rdm, target_pairs = compute_temporal_rdm(
         epoch, cv=cv, targets=epoch.events[:, 2],
-        cv_normalize_noise=cv_normalize_noise)
+        cv_normalize_noise=cv_normalize_noise,
+        batch_size=batch_size)
     n_times = len(epoch.times)
     n_pairwise_conditions = n_conditions * (n_conditions - 1)/2 + n_conditions
     assert(rdm.shape == (n_pairwise_conditions, n_times, n_times))
     assert(rdm.shape[0] == len(target_pairs))
+
+
+def test_compute_temporal_rdm_batch_size():
+    # Check we get the same results regardless of batch_size
+    n_epochs_cond = 20
+    n_conditions = 4
+    epoch = generate_epoch(n_epochs_cond=n_epochs_cond,
+                           n_conditions=n_conditions)
+    # to avoid warnings
+    cv = StratifiedShuffleSplit(n_splits=10, test_size=0.5, random_state=42)
+
+    # one batch
+    rdm1, target_pairs1 = compute_temporal_rdm(
+        epoch, cv=cv, targets=epoch.events[:, 2],
+        batch_size=20, metric_fx=cdist)
+    # two batches
+    rdm2, target_pairs2 = compute_temporal_rdm(
+        epoch, cv=cv, targets=epoch.events[:, 2],
+        batch_size=5, metric_fx=cdist)
+    assert_array_almost_equal(rdm1, rdm2)
+    assert_array_equal(target_pairs1, target_pairs2)
 
 
 def test_make_pseudotrials():

@@ -1,6 +1,7 @@
 """Module containing functions for temporal RSA"""
 import mne
 import numpy as np
+from itertools import islice
 from mne import EpochsArray
 from mne.cov import compute_whitener
 from numpy.testing import assert_array_equal
@@ -156,7 +157,7 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
 def compute_temporal_rdm(epoch, targets, metric_fx=fisher_correlation,
                          cv=StratifiedShuffleSplit(n_splits=10, test_size=0.5),
                          cv_normalize_noise=None,
-                         n_jobs=1):
+                         n_jobs=1, batch_size=200):
     """Computes pairwise metric across time
 
     Arguments
@@ -177,6 +178,9 @@ def compute_temporal_rdm(epoch, targets, metric_fx=fisher_correlation,
             - 'baseline' uses only the baseline condition; requires to pass an
               array times
     n_jobs : int (default 1)
+    batch_size : int (default 200)
+        size of the batches for cross-validation. To be used if the
+        number of splits are very large in order to reduce the memory load
 
     Returns
     -------
@@ -186,14 +190,28 @@ def compute_temporal_rdm(epoch, targets, metric_fx=fisher_correlation,
         the labels for each row of rdm
     """
     splits = cv.split(targets, targets)
-    out = Parallel(n_jobs=n_jobs)(
-        delayed(_compute_fold)
-        (epoch, targets, train, test,
-         metric_fx=metric_fx, cv_normalize_noise=cv_normalize_noise)
-        for train, test in splits)
+    n_splits = cv.get_n_splits(targets)
 
-    rdm, targets_pairs = zip(*out)
-    rdm = np.stack(rdm, axis=-1).mean(axis=-1)
+    # need to batch it for memory if more than 200 splits
+    # trick from https://stackoverflow.com/questions/14822184/
+    # is-there-a-ceiling-equivalent-of-operator-in-python/17511341#17511341
+    n_batches = -(-n_splits // batch_size)
+    print("Using n_batches {0}".format(n_batches))
+    rdm = None
+    for i_batch in range(n_batches):
+        rdm_cv = Parallel(n_jobs=n_jobs)(
+            delayed(_compute_fold)(epoch, targets, train, test,
+                                   metric_fx=metric_fx,
+                                   cv_normalize_noise=cv_normalize_noise)
+            for train, test in islice(splits, batch_size))
+        rdm_cv, targets_pairs = zip(*rdm_cv)
+        if rdm is None:
+            rdm = np.sum(rdm_cv, axis=0)
+        else:
+            rdm += np.sum(rdm_cv, axis=0)
+        # remove to free up some memory
+        del rdm_cv
+    rdm /= n_splits
 
     return rdm, targets_pairs[0]
 
