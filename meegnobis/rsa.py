@@ -75,7 +75,11 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
 
     Returns
     -------
-    rdms: array (n_pairwise_targets, n_times, n_times)
+    rdms: array (n_pairwise_targets, n_pairwise_times)
+        the cross-validated RDM over time; for efficiency purposes, it returns
+        only the upper triangular matrix over time, thus it assumes that the
+        metric is symmetric (this assumption doesn't hold for example for
+        classification).
     targets_pairs : list of len n_pairwise_targets
         the labels corresponding to each element in rdms
     """
@@ -94,9 +98,10 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
     unique_targets = np.unique(targets)
     n_unique_targets = len(unique_targets)
     n_times = len(epoch.times)
-    n_triu = int(n_unique_targets * (n_unique_targets - 1) / 2
-                 + n_unique_targets)
-    rdms = np.zeros((n_triu, n_times, n_times))
+    n_targets_triu = int(n_unique_targets * (n_unique_targets - 1) / 2
+                         + n_unique_targets)
+    n_times_triu = int(n_times * (n_times - 1)/2 + n_times)
+    rdms = np.zeros((n_targets_triu, n_times_triu))
 
     # impose conditions in epoch as targets, so that covariance
     # matrix is computed within each target
@@ -113,6 +118,7 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
     epoch_test = epoch_.copy()[test]
     targets_test = targets[test]
     assert(len(epoch_test) == len(targets_test))
+    times = epoch_train.times
 
     # perform multi variate noise normalization
     if cv_normalize_noise:
@@ -123,17 +129,17 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
                                            tmax=tmax, method='shrunk')
         W_train, ch_names = compute_whitener(cov_train, epoch_train.info)
         # whiten both training and testing set
-        epo_data_train = np.array([np.dot(W_train, e)
-                                   for e in epoch_train.get_data()])
-        epo_data_test = np.array([np.dot(W_train, e)
-                                  for e in epoch_test.get_data()])
+        epoch_train = np.array([np.dot(W_train, e)
+                                for e in epoch_train.get_data()])
+        epoch_test = np.array([np.dot(W_train, e)
+                               for e in epoch_test.get_data()])
     else:
-        epo_data_train = epoch_train.get_data()
-        epo_data_test = epoch_test.get_data()
+        epoch_train = epoch_train.get_data()
+        epoch_test = epoch_test.get_data()
 
     # average within train and test for each target
-    epo_data_train, targets_train = mean_group(epo_data_train, targets_train)
-    epo_data_test, targets_test = mean_group(epo_data_test, targets_test)
+    epoch_train, targets_train = mean_group(epoch_train, targets_train)
+    epoch_test, targets_test = mean_group(epoch_test, targets_test)
     # the targets should be the same in both training and testing set or else
     # we are correlating weird things together
     assert_array_equal(targets_train, targets_test)
@@ -143,18 +149,16 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
         for t2 in range(t1, n_times):
             if idx % 1000 == 0:
                 log.info("Running RDM for training, testing times "
-                         "({0}, {1})".format(epoch_train.times[t1],
-                                             epoch_test.times[t2]))
+                         "({0}, {1})".format(times[t1], times[t2]))
             # XXX: we should check whether the metric is symmetric to avoid
             # recomputing everything
-            rdm = metric_fx(epo_data_train[..., t1],
-                            epo_data_test[..., t2])
+            rdm = metric_fx(epoch_train[..., t1],
+                            epoch_test[..., t2])
             # now we need to impose symmetry
             rdm += rdm.T
             rdm /= 2.
             # now store only the upper triangular matrix
-            rdms[:, t1, t2] = rdm[np.triu_indices_from(rdm)]
-            rdms[:, t2, t1] = rdms[:, t1, t2]
+            rdms[:, idx] = rdm[np.triu_indices_from(rdm)]
             idx += 1
     # return also the pairs labels. since we are taking triu, we loop first
     # across rows
@@ -196,8 +200,12 @@ def compute_temporal_rdm(epoch, targets, metric_fx=fisher_correlation,
 
     Returns
     -------
-    rdm: array (n_pairwise_targets, n_times, n_times)
-        the cross-validated RDM over time
+    rdm: array (n_pairwise_targets, n_pairwise_times)
+        the cross-validated RDM over time; for efficiency purposes, it returns
+        only the upper triangular matrix over time, thus it assumes that the
+        metric is symmetric (this assumption doesn't hold for example for
+        classification). The full matrix can be reconstructed with
+        numpy.triu_indices_from
     targets_pairs : list of len n_pairwise_targets
         the labels for each row of rdm
     """

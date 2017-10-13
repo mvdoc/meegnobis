@@ -48,7 +48,8 @@ def test_compute_fold(cv_normalize_noise):
         epoch, targets, train, test, cv_normalize_noise=cv_normalize_noise)
     n_times = len(epoch.times)
     n_pairwise_conditions = n_conditions * (n_conditions - 1)/2 + n_conditions
-    assert(rdms.shape == (n_pairwise_conditions, n_times, n_times))
+    n_pairwise_times = n_times * (n_times - 1)/2 + n_times
+    assert(rdms.shape == (n_pairwise_conditions, n_pairwise_times))
     assert(rdms.shape[0] == len(target_pairs))
     # target_pairs should be already sorted
     target_pairs_sorted = sorted(target_pairs)
@@ -101,14 +102,16 @@ def test_compute_fold_values():
                                        train, test, metric_fx=cdist)
 
     epo_data = epoch.get_data()
+    idx = 0
     for i_tr in range(n_times):
-        for i_te in range(n_times):
+        for i_te in range(i_tr, n_times):
             rdms_ = cdist(epo_data[..., i_tr], epo_data[..., i_te])
             # impose symmetry
             rdms_ += rdms_.T
             rdms_ /= 2.
-            assert_array_equal(rdms[:, i_tr, i_te],
+            assert_array_equal(rdms[:, idx],
                                rdms_[np.triu_indices_from(rdms_)])
+            idx += 1
 
 
 @pytest.mark.parametrize("cv_normalize_noise", (None, 'epoch', 'baseline'))
@@ -127,7 +130,8 @@ def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size):
         batch_size=batch_size)
     n_times = len(epoch.times)
     n_pairwise_conditions = n_conditions * (n_conditions - 1)/2 + n_conditions
-    assert(rdm.shape == (n_pairwise_conditions, n_times, n_times))
+    n_pairwise_times = n_times * (n_times - 1)/2 + n_times
+    assert(rdm.shape == (n_pairwise_conditions, n_pairwise_times))
     assert(rdm.shape[0] == len(target_pairs))
 
 
