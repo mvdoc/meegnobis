@@ -143,8 +143,7 @@ def _compute_fold(epoch, targets, train, test, metric_fx=_cdist,
     unique_targets = _get_unique_targets(targets_train, targets_test)
     targets_pairs = []
     for i_tr, tr_lbl in enumerate(unique_targets):
-        start_te = i_tr if metric_symmetric_time else 0
-        for _, te_lbl in enumerate(unique_targets[start_te:]):
+        for _, te_lbl in enumerate(unique_targets[i_tr:]):
             targets_pairs.append('+'.join(map(str, [tr_lbl, te_lbl])))
 
     return rdms, targets_pairs

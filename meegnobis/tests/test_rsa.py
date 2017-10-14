@@ -124,7 +124,10 @@ def test_compute_fold_values():
 @pytest.mark.parametrize("cv_normalize_noise", (None, 'epoch', 'baseline'))
 @pytest.mark.parametrize("n_splits", (4, 10))
 @pytest.mark.parametrize("batch_size", (2, 5))
-def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size):
+@pytest.mark.parametrize("metric_symmetric_time", (True, False))
+def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size,
+                              metric_symmetric_time):
+    """Mostly a smoke test for combinations of parameters"""
     n_epochs_cond = 20
     n_conditions = 4
     epoch = generate_epoch(n_epochs_cond=n_epochs_cond,
@@ -134,12 +137,15 @@ def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size):
     rdm, target_pairs = compute_temporal_rdm(
         epoch, cv=cv, targets=epoch.events[:, 2],
         cv_normalize_noise=cv_normalize_noise,
-        batch_size=batch_size)
+        batch_size=batch_size, metric_symmetric_time=metric_symmetric_time)
     n_times = len(epoch.times)
     n_pairwise_conditions = n_conditions * (n_conditions - 1)/2 + n_conditions
     n_pairwise_times = n_times * (n_times - 1)/2 + n_times
-    assert(rdm.shape == (n_pairwise_conditions, n_pairwise_times))
-    assert(rdm.shape[0] == len(target_pairs))
+    assert_equal(rdm.shape[0], len(target_pairs))
+    if metric_symmetric_time:
+        assert_equal(rdm.shape, (n_pairwise_conditions, n_pairwise_times))
+    else:
+        assert_equal(rdm.shape, (n_pairwise_conditions, n_times*n_times))
 
 
 def test_compute_temporal_rdm_batch_size():
