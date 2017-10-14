@@ -1,19 +1,24 @@
 """Module containing test for rsa"""
 
+import logging
 import mne
 import pytest
 import numpy as np
+from functools import partial
 from numpy.testing import assert_array_equal, assert_equal, \
     assert_array_almost_equal
 from sklearn.model_selection import StratifiedShuffleSplit
 from scipy.spatial.distance import cdist
 
 from ..rsa import mean_group, _compute_fold, compute_temporal_rdm,\
-    make_pseudotrials, fisher_correlation
+    make_pseudotrials, _cdist, CDIST_METRICS
+from ..log import log
 from ..testing import generate_epoch
 
 rng = np.random.RandomState(42)
-mne.set_log_level("WARNING")
+# silence the output for tests
+mne.set_log_level("CRITICAL")
+log.setLevel(logging.CRITICAL)
 
 
 def test_mean_group():
@@ -99,7 +104,9 @@ def test_compute_fold_values():
     train = test = np.arange(len(targets))
 
     rdms, target_pairs = _compute_fold(epoch, targets,
-                                       train, test, metric_fx=cdist)
+                                       train, test,
+                                       metric_fx=partial(_cdist,
+                                                         metric='euclidean'))
 
     epo_data = epoch.get_data()
     idx = 0
@@ -147,11 +154,11 @@ def test_compute_temporal_rdm_batch_size():
     # one batch
     rdm1, target_pairs1 = compute_temporal_rdm(
         epoch, cv=cv, targets=epoch.events[:, 2],
-        batch_size=20, metric_fx=cdist)
+        batch_size=20)
     # two batches
     rdm2, target_pairs2 = compute_temporal_rdm(
         epoch, cv=cv, targets=epoch.events[:, 2],
-        batch_size=5, metric_fx=cdist)
+        batch_size=5)
     assert_array_almost_equal(rdm1, rdm2)
     assert_array_equal(target_pairs1, target_pairs2)
 
@@ -190,13 +197,17 @@ def test_make_pseudotrials():
     assert_equal(len(avg_targets), len(avg_trials))
 
 
-def test_fisher_correlation():
-    for _ in range(10):
-        x = np.random.randn(1, 20)
-        y = x + np.random.randn(*x.shape)/10000
-        out = np.tanh(fisher_correlation(x, y))[0]
+@pytest.mark.parametrize('metric', CDIST_METRICS)
+def test_cdist(metric):
+    x = np.random.randn(1, 10)
+    y = x + np.random.randn(*x.shape)/10000
+    out = _cdist(x, y, metric=metric)[0]
+    if metric == 'correlation':
+        out = np.tanh(out)
         assert_array_almost_equal([1], out)
-        assert_array_almost_equal(np.corrcoef(x, y)[0, 1], out[0])
+        assert_array_almost_equal(np.corrcoef(x, y)[0, 1], out)
+        out = 1. - out
+    assert_array_equal(out, cdist(x, y, metric=metric))
 
 
 

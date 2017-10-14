@@ -1,7 +1,7 @@
 """Module containing functions for temporal RSA"""
-import logging
 import mne
 import numpy as np
+from functools import partial
 from itertools import islice
 from mne import EpochsArray
 from mne.cov import compute_whitener
@@ -14,12 +14,32 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from .log import log
 log.name = __name__
 
+# TODO: add more from cdist?
+CDIST_METRICS = [
+    'cityblock',
+    'correlation',
+    'cosine',
+    'dice',
+    'euclidean',
+    'hamming',
+    'sqeuclidean'
+]
+OUR_METRICS = dict()
 
-def fisher_correlation(x, y):
+
+# XXX this could be any cdist metric, not only correlation
+def _cdist(x, y, metric='correlation', targets_train=None, targets_test=None):
     """Computes correlation between x and y and fisher-transforms the output
 
     See scipy.spatial.cdist for more information"""
-    return np.arctanh(1. - cdist(x, y, metric='correlation'))
+    rdm = cdist(x, y, metric=metric)
+    if metric == 'correlation':
+        rdm = np.arctanh(1. - rdm)
+    # now we need to impose symmetry
+    rdm += rdm.T
+    rdm /= 2.
+    # then return only the upper triangular matrix
+    return rdm[np.triu_indices_from(rdm)]
 
 
 def mean_group(array, targets):
@@ -27,16 +47,16 @@ def mean_group(array, targets):
 
     Arguments
     ---------
-    array : (n_samples, n_features, n_times)
+    array : ndarray (n_samples, n_features, n_times)
         array containing the epoch data
-    targets : (n_samples, )
+    targets : ndarray (n_samples, )
         array containing targets for the samples
 
     Returns
     -------
-    avg_array : (n_unique_targets, n_features, n_times)
+    avg_array : ndarray (n_unique_targets, n_features, n_times)
         array containing the average within each group
-    unique_targets : (n_unique_targets, )
+    unique_targets : ndarray (n_unique_targets, )
         array containing the unique targets, corresponding to the order in
         avg_array
     """
@@ -49,8 +69,9 @@ def mean_group(array, targets):
     return avg_array, unique_targets
 
 
-def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
-                  cv_normalize_noise=None):
+def _compute_fold(epoch, targets, train, test, metric_fx=_cdist,
+                  cv_normalize_noise=None, mean_groups=True,
+                  metric_symmetric_time=True):
     """Computes pairwise metric across time for one fold
 
     Arguments
@@ -89,20 +110,6 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
         raise ValueError("targets must be integers, "
                          "not {0}".format(targets.dtype))
 
-    if cv_normalize_noise not in ('epoch', 'baseline', None):
-        raise ValueError(
-            "cv_normalize_noise must be one of {0}".format(
-                ('epoch', 'baseline', None)))
-
-    # preallocate array
-    unique_targets = np.unique(targets)
-    n_unique_targets = len(unique_targets)
-    n_times = len(epoch.times)
-    n_targets_triu = int(n_unique_targets * (n_unique_targets - 1) / 2
-                         + n_unique_targets)
-    n_times_triu = int(n_times * (n_times - 1)/2 + n_times)
-    rdms = np.zeros((n_targets_triu, n_times_triu))
-
     # impose conditions in epoch as targets, so that covariance
     # matrix is computed within each target
     events_ = epoch.events.copy()
@@ -118,9 +125,37 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
     epoch_test = epoch_.copy()[test]
     targets_test = targets[test]
     assert(len(epoch_test) == len(targets_test))
-    times = epoch_train.times
 
     # perform multi variate noise normalization
+    epoch_train, epoch_test = _multiv_normalize(epoch_train, epoch_test,
+                                                cv_normalize_noise)
+    if mean_groups:
+        # average within train and test for each target
+        epoch_train, targets_train = mean_group(epoch_train, targets_train)
+        epoch_test, targets_test = mean_group(epoch_test, targets_test)
+        # the targets should be the same in both training and testing
+        # set or else we are correlating weird things together
+        assert_array_equal(targets_train, targets_test)
+    rdms = _run_metric(epoch_train, epoch_test, targets_train, targets_test,
+                       metric_fx, metric_symmetric_time)
+
+    # return also the pairs labels. since we are taking triu, we loop first
+    # across rows
+    unique_targets = _get_unique_targets(targets_train, targets_test)
+    targets_pairs = []
+    for i_tr, tr_lbl in enumerate(unique_targets):
+        start_te = i_tr if metric_symmetric_time else 0
+        for _, te_lbl in enumerate(unique_targets[start_te:]):
+            targets_pairs.append('+'.join(map(str, [tr_lbl, te_lbl])))
+
+    return rdms, targets_pairs
+
+
+def _multiv_normalize(epoch_train, epoch_test, cv_normalize_noise=None):
+    if cv_normalize_noise not in ('epoch', 'baseline', None):
+        raise ValueError(
+            "cv_normalize_noise must be one of {0}".format(
+                ('epoch', 'baseline', None)))
     if cv_normalize_noise:
         log.info("Applying multivariate noise normalization "
                  "with method '{0}'".format(cv_normalize_noise))
@@ -136,41 +171,50 @@ def _compute_fold(epoch, targets, train, test, metric_fx=fisher_correlation,
     else:
         epoch_train = epoch_train.get_data()
         epoch_test = epoch_test.get_data()
+    return epoch_train, epoch_test
 
-    # average within train and test for each target
-    epoch_train, targets_train = mean_group(epoch_train, targets_train)
-    epoch_test, targets_test = mean_group(epoch_test, targets_test)
-    # the targets should be the same in both training and testing set or else
-    # we are correlating weird things together
-    assert_array_equal(targets_train, targets_test)
+
+def _get_unique_targets(targets_train, targets_test):
+    unique_targets_train = np.unique(targets_train)
+    unique_targets_test = np.unique(targets_test)
+    unique_targets = sorted(set(unique_targets_train).
+                            intersection(unique_targets_test))
+    return unique_targets
+
+
+def _run_metric(epoch_train, epoch_test, targets_train, targets_test,
+                metric_fx=_cdist, metric_symmetric_time=True):
+    n_times = epoch_train.shape[-1]
+    times = range(n_times)
+    unique_targets = _get_unique_targets(targets_train, targets_test)
+    n_unique_targets = len(unique_targets)
+    n_pairwise_targets = n_unique_targets * (n_unique_targets - 1)/2 + \
+        n_unique_targets
+    n_pairwise_times = \
+        n_times * (n_times - 1)/2 + n_times if metric_symmetric_time \
+        else n_times * n_times
+    # preallocate output
+    rdms = np.zeros((n_pairwise_targets, n_pairwise_times))
     # compute pairwise metric
     idx = 0
     for t1 in range(n_times):
-        for t2 in range(t1, n_times):
+        start_t2 = t1 if metric_symmetric_time else 0
+        for t2 in range(start_t2, n_times):
             if idx % 1000 == 0:
                 log.info("Running RDM for training, testing times "
                          "({0}, {1})".format(times[t1], times[t2]))
-            # XXX: we should check whether the metric is symmetric to avoid
             # recomputing everything
             rdm = metric_fx(epoch_train[..., t1],
-                            epoch_test[..., t2])
-            # now we need to impose symmetry
-            rdm += rdm.T
-            rdm /= 2.
+                            epoch_test[..., t2],
+                            targets_train=targets_train,
+                            targets_test=targets_test)
             # now store only the upper triangular matrix
-            rdms[:, idx] = rdm[np.triu_indices_from(rdm)]
+            rdms[:, idx] = rdm
             idx += 1
-    # return also the pairs labels. since we are taking triu, we loop first
-    # across rows
-    targets_pairs = []
-    for i_tr, tr_lbl in enumerate(targets_train):
-        for _, te_lbl in enumerate(targets_test[i_tr:]):
-            targets_pairs.append('+'.join(map(str, [tr_lbl, te_lbl])))
-
-    return rdms, targets_pairs
+    return rdms
 
 
-def compute_temporal_rdm(epoch, targets, metric_fx=fisher_correlation,
+def compute_temporal_rdm(epoch, targets, metric='correlation',
                          cv=StratifiedShuffleSplit(n_splits=10, test_size=0.5),
                          cv_normalize_noise=None,
                          n_jobs=1, batch_size=200):
@@ -181,9 +225,8 @@ def compute_temporal_rdm(epoch, targets, metric_fx=fisher_correlation,
     epoch : instance of mne.Epoch
     targets : array (n_trials,)
         target (condition) for each trials
-    metric_fx : function(x, y, train_targets, test_targets)
-        any function that returns a scalar given two arrays.
-        This condition must hold: metric_fx(x, y) == metric_fx(y, x)
+    metric: str
+        type of metric to use, one of XXX
     cv : instance of sklearn cross-validator
         (default StratifiedShuffleSplit(n_splits=10, test_size=0.5)
     cv_normalize_noise : str | None (default None)
@@ -209,6 +252,13 @@ def compute_temporal_rdm(epoch, targets, metric_fx=fisher_correlation,
     targets_pairs : list of len n_pairwise_targets
         the labels for each row of rdm
     """
+    # set up metric
+    if metric in CDIST_METRICS:
+        metric_fx = partial(_cdist, metric=metric)
+    elif metric in OUR_METRICS:
+        metric_fx = OUR_METRICS[metric]
+    else:
+        raise ValueError("I don't know about metric {0}".format(metric))
     splits = cv.split(targets, targets)
     n_splits = cv.get_n_splits(targets)
 
