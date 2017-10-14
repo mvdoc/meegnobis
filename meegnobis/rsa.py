@@ -27,7 +27,6 @@ CDIST_METRICS = [
 OUR_METRICS = dict()
 
 
-# XXX this could be any cdist metric, not only correlation
 def _cdist(x, y, metric='correlation', targets_train=None, targets_test=None):
     """Computes correlation between x and y and fisher-transforms the output
 
@@ -216,7 +215,7 @@ def _run_metric(epoch_train, epoch_test, targets_train, targets_test,
 
 def compute_temporal_rdm(epoch, targets, metric='correlation',
                          cv=StratifiedShuffleSplit(n_splits=10, test_size=0.5),
-                         cv_normalize_noise=None,
+                         cv_normalize_noise=None, metric_symmetric_time=True,
                          n_jobs=1, batch_size=200):
     """Computes pairwise metric across time
 
@@ -226,7 +225,9 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
     targets : array (n_trials,)
         target (condition) for each trials
     metric: str
-        type of metric to use, one of XXX
+        type of metric to use, one of 'cityblock', 'correlation', 'cosine',
+        'dice', 'euclidean', 'hamming', 'sqeuclidean' for distances, or
+        'linearsvm' for classification.
     cv : instance of sklearn cross-validator
         (default StratifiedShuffleSplit(n_splits=10, test_size=0.5)
     cv_normalize_noise : str | None (default None)
@@ -236,6 +237,14 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
             - 'epoch' computes the covariance matrix on the entire epoch;
             - 'baseline' uses only the baseline condition; requires to pass an
               array times
+    metric_symmetric_time: bool (default True)
+        Whether the metric can be considered symmetric for time. For example,
+        this is true for distances because
+        m(t_train, t_test) == m(t_test, t_train)
+        but it's not true for classification, because the order matters for
+        training. If `metric_symmetric_time` is set to True, only the upper
+        diagonal matrix (for time) is computed; otherwise, the entire matrix
+        is returned.
     n_jobs : int (default 1)
     batch_size : int (default 200)
         size of the batches for cross-validation. To be used if the
@@ -243,12 +252,15 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
 
     Returns
     -------
-    rdm: array (n_pairwise_targets, n_pairwise_times)
-        the cross-validated RDM over time; for efficiency purposes, it returns
-        only the upper triangular matrix over time, thus it assumes that the
-        metric is symmetric (this assumption doesn't hold for example for
-        classification). The full matrix can be reconstructed with
-        numpy.triu_indices_from
+    rdm: ndarray (n_pairwise_targets, n_pairwise_times) or
+                 (n_pairwise_targets, n_times * n_times)
+        the cross-validated RDM over time; if `metric_symmetric_time` was set
+        to True, then for efficiency purposes it returns
+        only the upper triangular matrix over time, and the full matrix can be
+        reconstructed with numpy.triu_indices_from. Otherwise, the entire
+        flattened matrix over time is returned, and the full matrix can be
+        reconstructed with np.reshape((n_times, n_times)). The order is row
+        first, then columns.
     targets_pairs : list of len n_pairwise_targets
         the labels for each row of rdm
     """
@@ -273,6 +285,7 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
         rdm_cv = Parallel(n_jobs=n_jobs)(
             delayed(_compute_fold)(epoch, targets, train, test,
                                    metric_fx=metric_fx,
+                                   metric_symmetric_time=metric_symmetric_time,
                                    cv_normalize_noise=cv_normalize_noise)
             for train, test in islice(splits, batch_size))
         rdm_cv, targets_pairs = zip(*rdm_cv)
