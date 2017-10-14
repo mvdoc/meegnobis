@@ -194,7 +194,7 @@ def _run_metric(epoch_train, epoch_test, targets_train, targets_test,
         n_times * (n_times - 1)/2 + n_times if metric_symmetric_time \
         else n_times * n_times
     # preallocate output
-    rdms = np.zeros((n_pairwise_targets, n_pairwise_times))
+    rdms = np.zeros((int(n_pairwise_targets), int(n_pairwise_times)))
     # compute pairwise metric
     idx = 0
     for t1 in range(n_times):
