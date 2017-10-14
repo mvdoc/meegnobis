@@ -7,11 +7,13 @@ import numpy as np
 from functools import partial
 from numpy.testing import assert_array_equal, assert_equal, \
     assert_array_almost_equal
+from sklearn.datasets import make_blobs
 from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.svm import SVC
 from scipy.spatial.distance import cdist
 
 from ..rsa import mean_group, _compute_fold, compute_temporal_rdm,\
-    make_pseudotrials, _cdist, CDIST_METRICS
+    make_pseudotrials, _cdist, CDIST_METRICS, _linearsvm
 from ..log import log
 from ..testing import generate_epoch
 
@@ -214,6 +216,57 @@ def test_cdist(metric):
         assert_array_almost_equal(np.corrcoef(x, y)[0, 1], out)
         out = 1. - out
     assert_array_equal(out, cdist(x, y, metric=metric))
+
+
+def test_linearsvm():
+    # smoke test
+    n_epochs_cond = 20
+    n_conditions = 4
+    data, targets = make_blobs(n_samples=n_conditions*n_epochs_cond,
+                               n_features=10,
+                               centers=n_conditions)
+
+    train = test = np.arange(data.shape[0])
+    out = _linearsvm(data[train], data[test], targets[train], targets[test])
+    assert_array_equal(out.shape, (n_conditions * (n_conditions-1)/2 +
+                                   n_conditions,))
+    # check that we get perfect classification if we cheat
+    assert_array_equal(out, np.ones(out.shape))
+
+    # now test against SVC to make sure we get the same
+    n_epochs_cond = 20
+    n_conditions = 4
+    data, targets = make_blobs(n_samples=n_conditions*n_epochs_cond,
+                               n_features=10,
+                               centers=n_conditions)
+    unique_targets = np.unique(targets)
+    n_unique_targets = len(unique_targets)
+
+    train = np.arange(data.shape[0] // 2)
+    test = np.arange(data.shape[0] // 2, data.shape[0])
+    targets_train = targets[train]
+    targets_test = targets[test]
+    data_train = data[train]
+    data_test = data[test]
+    out = _linearsvm(data_train, data_test,
+                     targets_train, targets_test)
+
+    idx = 0
+    for t1 in range(n_unique_targets):
+        for t2 in range(t1, n_unique_targets):
+            if t1 == t2:
+                assert_equal(1., out[idx])
+            else:
+                mask_train = (targets_train == t1) | (targets_train == t2)
+                mask_test = (targets_test == t1) | (targets_test == t2)
+                # random assignment
+                svc = SVC(kernel='linear')
+                svc.fit(data_train[mask_train], targets_train[mask_train])
+                score = svc.score(data_test[mask_test],
+                                  targets_test[mask_test])
+                assert_array_almost_equal(score, out[idx])
+            idx += 1
+
 
 
 

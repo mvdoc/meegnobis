@@ -9,6 +9,7 @@ from numpy.testing import assert_array_equal
 from joblib.parallel import Parallel, delayed
 from scipy.spatial.distance import cdist
 from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.svm import SVC
 
 # setup log
 from .log import log
@@ -39,6 +40,50 @@ def _cdist(x, y, metric='correlation', targets_train=None, targets_test=None):
     rdm /= 2.
     # then return only the upper triangular matrix
     return rdm[np.triu_indices_from(rdm)]
+
+
+def _linearsvm(data_train, data_test, targets_train, targets_test):
+    """
+    Parameters
+    ----------
+    data_train
+    data_test
+    targets_train
+    targets_test
+
+    Returns
+    -------
+
+    """
+    svc = SVC(kernel='linear')
+    # we need to loop through all pairwise targets
+    unique_targets = _get_unique_targets(targets_train, targets_test)
+    n_unique_targets = len(unique_targets)
+    n_pairwise_targets = n_unique_targets * (n_unique_targets - 1)/2 + \
+        n_unique_targets
+    # preallocate output
+    rdm = np.ones(n_pairwise_targets)
+    idx = 0
+    for p1 in range(n_unique_targets):
+        for p2 in range(p1, n_unique_targets):
+            # because it's classification, it doesn't make any sense
+            # to run classification with one class, so we return 1. for
+            # consistency
+            if p1 == p2:
+                continue
+            target1 = unique_targets[p1]
+            target2 = unique_targets[p2]
+            mask_train = (targets_train == target1) | \
+                         (targets_train == target2)
+            mask_test = (targets_test == target1) | \
+                        (targets_test == target2)
+            # training
+            svc.fit(data_train[mask_train], targets_train[mask_train])
+            # score
+            rdm[idx] = svc.score(data_test[mask_test], targets_test[mask_test])
+            idx += 1
+    return rdm
+OUR_METRICS['linearsvm'] = _linearsvm
 
 
 def mean_group(array, targets):
