@@ -13,7 +13,7 @@ from sklearn.svm import SVC
 from scipy.spatial.distance import cdist
 
 from ..rsa import mean_group, _compute_fold, compute_temporal_rdm,\
-    make_pseudotrials, _cdist, CDIST_METRICS, _linearsvm
+    make_pseudotrials, _cdist, CDIST_METRICS, _linearsvm, _npairs
 from ..log import log
 from ..testing import generate_epoch
 
@@ -21,6 +21,14 @@ rng = np.random.RandomState(42)
 # silence the output for tests
 mne.set_log_level("CRITICAL")
 log.setLevel(logging.CRITICAL)
+
+
+def test_npairs():
+    for nitems in [100, 101]:
+        assert(int(nitems * (nitems-1)/2. + nitems) == _npairs(nitems))
+        assert(isinstance(_npairs(nitems), int))
+    with pytest.raises(ValueError):
+        _npairs(1)
 
 
 def test_mean_group():
@@ -54,8 +62,8 @@ def test_compute_fold(cv_normalize_noise):
     rdms, target_pairs = _compute_fold(
         epoch, targets, train, test, cv_normalize_noise=cv_normalize_noise)
     n_times = len(epoch.times)
-    n_pairwise_conditions = n_conditions * (n_conditions - 1)/2 + n_conditions
-    n_pairwise_times = n_times * (n_times - 1)/2 + n_times
+    n_pairwise_conditions = _npairs(n_conditions)
+    n_pairwise_times = _npairs(n_times)
     assert(rdms.shape == (n_pairwise_conditions, n_pairwise_times))
     assert(rdms.shape[0] == len(target_pairs))
     # target_pairs should be already sorted
@@ -141,8 +149,8 @@ def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size,
         cv_normalize_noise=cv_normalize_noise,
         batch_size=batch_size, metric_symmetric_time=metric_symmetric_time)
     n_times = len(epoch.times)
-    n_pairwise_conditions = n_conditions * (n_conditions - 1)/2 + n_conditions
-    n_pairwise_times = n_times * (n_times - 1)/2 + n_times
+    n_pairwise_conditions = _npairs(n_conditions)
+    n_pairwise_times = _npairs(n_times)
     assert_equal(rdm.shape[0], len(target_pairs))
     if metric_symmetric_time:
         assert_equal(rdm.shape, (n_pairwise_conditions, n_pairwise_times))
@@ -215,7 +223,7 @@ def test_cdist(metric):
         assert_array_almost_equal([1], out)
         assert_array_almost_equal(np.corrcoef(x, y)[0, 1], out)
         out = 1. - out
-    assert_array_equal(out, cdist(x, y, metric=metric))
+    assert_array_almost_equal(out, cdist(x, y, metric=metric))
 
 
 def test_linearsvm():

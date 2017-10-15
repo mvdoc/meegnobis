@@ -28,6 +28,16 @@ CDIST_METRICS = [
 OUR_METRICS = dict()
 
 
+def _npairs(n_items):
+    """Return the number of pairs given n_items; corresponds to the length
+    of a triu matrix (diagonal included)"""
+    if n_items < 2:
+        raise ValueError("More than two items required, "
+                         "passed {0}".format(n_items))
+    n_pairs = int(n_items * (n_items - 1) / 2. + n_items)
+    return n_pairs
+
+
 def _cdist(x, y, metric='correlation', targets_train=None, targets_test=None):
     """Computes correlation between x and y and fisher-transforms the output
 
@@ -59,8 +69,7 @@ def _linearsvm(data_train, data_test, targets_train, targets_test):
     # we need to loop through all pairwise targets
     unique_targets = _get_unique_targets(targets_train, targets_test)
     n_unique_targets = len(unique_targets)
-    n_pairwise_targets = n_unique_targets * (n_unique_targets - 1)/2 + \
-        n_unique_targets
+    n_pairwise_targets = _npairs(n_unique_targets)
     # preallocate output
     rdm = np.ones(n_pairwise_targets)
     idx = 0
@@ -83,6 +92,8 @@ def _linearsvm(data_train, data_test, targets_train, targets_test):
             rdm[idx] = svc.score(data_test[mask_test], targets_test[mask_test])
             idx += 1
     return rdm
+
+
 OUR_METRICS['linearsvm'] = _linearsvm
 
 
@@ -231,13 +242,11 @@ def _run_metric(epoch_train, epoch_test, targets_train, targets_test,
     times = range(n_times)
     unique_targets = _get_unique_targets(targets_train, targets_test)
     n_unique_targets = len(unique_targets)
-    n_pairwise_targets = n_unique_targets * (n_unique_targets - 1)/2 + \
-        n_unique_targets
-    n_pairwise_times = \
-        n_times * (n_times - 1)/2 + n_times if metric_symmetric_time \
+    n_pairwise_targets = _npairs(n_unique_targets)
+    n_pairwise_times = _npairs(n_times) if metric_symmetric_time \
         else n_times * n_times
     # preallocate output
-    rdms = np.zeros((int(n_pairwise_targets), int(n_pairwise_times)))
+    rdms = np.zeros((n_pairwise_targets, n_pairwise_times))
     # compute pairwise metric
     idx = 0
     for t1 in range(n_times):
