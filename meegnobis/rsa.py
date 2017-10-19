@@ -115,11 +115,12 @@ def mean_group(array, targets):
         array containing the unique targets, corresponding to the order in
         avg_array
     """
-    unique_targets = np.unique(targets)
+    targets_ = np.array(targets)
+    unique_targets = np.unique(targets_)
     n_unique_targets = len(unique_targets)
     avg_array = np.zeros((n_unique_targets, array.shape[1], array.shape[2]))
     for i, t in enumerate(unique_targets):
-        mask = targets == t
+        mask = targets_ == t
         avg_array[i, ...] = array[mask, ...].mean(axis=0)
     return avg_array, unique_targets
 

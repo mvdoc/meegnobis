@@ -44,6 +44,12 @@ def test_mean_group():
     assert_array_equal(avg_array, np.asanyarray([array[:5].mean(axis=0),
                                                  array[5:].mean(axis=0)]))
 
+    # check it works even it targets is a list
+    avg_array, unique_targets = mean_group(array, targets.tolist())
+    assert_array_equal(unique_targets, [0, 1])
+    assert_array_equal(avg_array, np.asanyarray([array[:5].mean(axis=0),
+                                                 array[5:].mean(axis=0)]))
+
 
 @pytest.mark.parametrize("cv_normalize_noise", [None, 'epoch', 'baseline'])
 def test_compute_fold(cv_normalize_noise):
