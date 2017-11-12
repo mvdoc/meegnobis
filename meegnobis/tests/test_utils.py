@@ -9,7 +9,7 @@ from ..testing import generate_epoch
 
 
 def test_convolve():
-    # first let's make sure it works as regulare np.convolve
+    # first let's make sure it works as regular np.convolve
     array = np.arange(10)
     filt = [0.5, 0.5]
     assert_array_equal(convolve(array, filt),
@@ -29,6 +29,23 @@ def test_convolve():
         array_4d = np.stack((array_3d, array_3d))
         with pytest.raises(ValueError):
             convolve(array_4d, filt)
+
+
+def test_convolve_backward_in_time():
+    def gamma(t, p=8.6, q=0.547):
+        return (t / (p * q)) ** p * np.exp((p - t) / q)
+    n_times = 100
+    hrf = gamma(np.arange(n_times))
+    # test that we're not adding stuff that doesn't exist back in time
+    array = np.zeros(n_times)
+    # pulse at t0
+    t = 40
+    array[t] = 1.
+    array_ = convolve(array, hrf)
+    # we should get the same shape
+    assert_equal(array_.shape, array.shape)
+    # everything before t should be zeros
+    assert_array_equal(array_[:t], np.zeros(t))
 
 
 def test_moving_average():

@@ -1,6 +1,12 @@
 import numpy as np
 
 
+def _conv(array, filt):
+    """Run convolution by keeping the same onset of events"""
+    res = np.convolve(array, filt)
+    return res[:len(array)]
+
+
 def convolve(array, filt):
     """A vectorized version of np.convolve, lifted from the example
 
@@ -19,7 +25,7 @@ def convolve(array, filt):
         the convolved array, computed using mode = 'same'
     """
     if np.__version__ >= '1.12.0':
-        convvect = np.vectorize(lambda x, y: np.convolve(x, y, mode='same'),
+        convvect = np.vectorize(lambda x, y: np.convolve(x, y)[..., :len(x)],
                                 signature='(n),(m)->(k)',
                                 doc=__doc__)
         return convvect(array, filt)
@@ -29,7 +35,7 @@ def convolve(array, filt):
             raise ValueError(
                 "This function doesn't work on multidimensional "
                 "arrays with more than 3 dimensions under numpy < 1.12.0")
-        conv = lambda x: np.convolve(x, filt, mode='same')
+        conv = lambda x: _conv(x, filt)
         if array.ndim == 1:
             return conv(array)
         else:
