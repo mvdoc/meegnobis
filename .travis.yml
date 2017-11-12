@@ -24,6 +24,7 @@ install:
   - conda info -a
   # test against older version of numpy too
   # - conda install scipy scikit-learn joblib
+  - conda install matplotlib
   - if [[ "$NUMPY_VERSION" == "" ]]; then
       pip install numpy;
     else
