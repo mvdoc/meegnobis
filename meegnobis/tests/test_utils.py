@@ -4,6 +4,8 @@ import pytest
 
 from mne import create_info, EpochsArray
 from numpy.testing import assert_array_equal, assert_equal
+
+from meegnobis.utils import _npairs
 from ..utils import convolve, moving_average
 from ..testing import generate_epoch
 
@@ -85,3 +87,9 @@ def test_moving_average():
                            convolve(array_3d, filt))
 
 
+def test_npairs():
+    for nitems in [100, 101]:
+        assert(int(nitems * (nitems-1)/2. + nitems) == _npairs(nitems))
+        assert(isinstance(_npairs(nitems), int))
+    with pytest.raises(ValueError):
+        _npairs(1)

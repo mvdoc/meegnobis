@@ -79,4 +79,22 @@ def moving_average(epoch, twindow):
     data = convolve(data, filt)
     data = np.transpose(data, [1, 0, 2])
     epoch_._data = data
-    return(epoch_)
+    return epoch_
+
+
+def _npairs(n_items):
+    """Return the number of pairs given n_items; corresponds to the length
+    of a triu matrix (diagonal included)"""
+    if n_items < 2:
+        raise ValueError("More than two items required, "
+                         "passed {0}".format(n_items))
+    n_pairs = int(n_items * (n_items - 1) / 2. + n_items)
+    return n_pairs
+
+
+def _get_unique_targets(targets_train, targets_test):
+    unique_targets_train = np.unique(targets_train)
+    unique_targets_test = np.unique(targets_test)
+    unique_targets = sorted(set(unique_targets_train).
+                            intersection(unique_targets_test))
+    return unique_targets
