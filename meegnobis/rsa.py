@@ -78,18 +78,22 @@ def _run_metric_binarytargets(metric_fx, data_train, targets_train, data_test,
         idx = 0
         for p1 in range(n_unique_targets):
             for p2 in range(p1, n_unique_targets):
-                target1 = unique_targets[p1]
-                target2 = unique_targets[p2]
-                mask_train = (targets_train == target1) | \
-                             (targets_train == target2)
-                mask_test = (targets_test == target1) | \
-                            (targets_test == target2)
-                # training
-                metric_fx.fit(data_train[mask_train],
-                              targets_train[mask_train])
-                # score
-                rdm[idx] = metric_fx.score(data_test[mask_test],
-                                           targets_test[mask_test])
+                if p1 == p2:
+                    # doesn't make sense to run classification with one label
+                    rdm[idx] = 1.
+                else:
+                    target1 = unique_targets[p1]
+                    target2 = unique_targets[p2]
+                    mask_train = (targets_train == target1) | \
+                                 (targets_train == target2)
+                    mask_test = (targets_test == target1) | \
+                                (targets_test == target2)
+                    # training
+                    metric_fx.fit(data_train[mask_train],
+                                  targets_train[mask_train])
+                    # score
+                    rdm[idx] = metric_fx.score(data_test[mask_test],
+                                               targets_test[mask_test])
                 idx += 1
     return rdm
 

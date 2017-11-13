@@ -10,13 +10,13 @@ from numpy.testing import assert_array_equal, assert_equal, \
     assert_array_almost_equal
 from scipy.spatial.distance import cdist
 from sklearn.datasets import make_blobs
-from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import StratifiedShuffleSplit, ShuffleSplit
 from sklearn.svm import SVC
 
 from meegnobis.utils import _npairs
 from ..log import log
 from ..rsa import mean_group, _compute_fold, compute_temporal_rdm,\
-    make_pseudotrials, CDIST_METRICS
+    make_pseudotrials, CDIST_METRICS, _run_metric
 from ..testing import generate_epoch
 
 rng = np.random.RandomState(42)
@@ -210,4 +210,65 @@ def test_make_pseudotrials():
     assert_equal(len(np.unique(avg_targets)), n_conditions)
     assert_equal(len(avg_targets), len(avg_trials))
 
+
+def test_sklearn_clf():
+    svc = SVC()
+
+    n_epochs = 20
+    n_sensors = 30
+    n_times = 4
+    n_conditions = 4
+
+    data, targets = make_blobs(n_samples=n_epochs,
+                               n_features=n_sensors,
+                               centers=n_conditions)
+    data_ = np.dstack(
+        [data + np.random.randn(*data.shape) for _ in range(n_times)]
+    )
+
+    # smoke test
+    rdms = _run_metric(svc, data_, targets, data_, targets)
+    assert_equal(rdms.shape, (_npairs(n_conditions), n_times*n_times))
+
+    # let's make an actual splitter
+    data, targets = make_blobs(n_samples=n_epochs,
+                               n_features=n_sensors,
+                               centers=2, center_box=(-1, 1),
+                               cluster_std=2.0)
+    data_ = np.dstack(
+        [data + np.random.randn(*data.shape) for _ in range(n_times)]
+    )
+
+    splitter = StratifiedShuffleSplit(n_splits=2)
+    splits = list(splitter.split(targets, targets, groups=targets))
+    rdms = []
+    for train, test in splits:
+        rdms.append(
+            _run_metric(svc, data_[train], targets[train],
+                        data_[test], targets[test])
+        )
+
+    # now let's run it manually
+    manual_clf = []
+    for train, test in splits:
+        data_train = data_[train]
+        data_test = data_[test]
+        targets_train = targets[train]
+        targets_test = targets[test]
+        acc_times = []
+        for t1 in range(n_times):
+            for t2 in range(n_times):
+                d_tr = data_train[..., t1]
+                d_te = data_test[..., t2]
+                svc.fit(d_tr, targets_train)
+                acc_times.append(svc.score(d_te, targets_test))
+        manual_clf.append(np.array(acc_times))
+
+    # take only the "true" accuracy; the others are 1. by default
+    rdms = np.stack(rdms)
+    assert_array_equal(rdms[:, 0, :], np.ones((2, n_times*n_times)))
+    assert_array_equal(rdms[:, 2, :], np.ones((2, n_times*n_times)))
+    rdms = rdms[:, 1, :]
+
+    assert_array_equal(rdms, manual_clf)
 
