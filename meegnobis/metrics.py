@@ -1,6 +1,6 @@
 """Module containing metrics"""
 import numpy as np
-from .rsa import _npairs, _get_unique_targets
+from .utils import _npairs, _get_unique_targets
 from scipy.spatial.distance import cdist
 
 

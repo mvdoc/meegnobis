@@ -1,34 +1,28 @@
 """Module containing test for rsa"""
 
 import logging
-import mne
-import pytest
-import numpy as np
 from functools import partial
+
+import mne
+import numpy as np
+import pytest
 from numpy.testing import assert_array_equal, assert_equal, \
     assert_array_almost_equal
+from scipy.spatial.distance import cdist
 from sklearn.datasets import make_blobs
 from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.svm import SVC
-from scipy.spatial.distance import cdist
 
-from ..rsa import mean_group, _compute_fold, compute_temporal_rdm,\
-    make_pseudotrials, _cdist, CDIST_METRICS, _linearsvm, _npairs
+from meegnobis.utils import _npairs
 from ..log import log
+from ..rsa import mean_group, _compute_fold, compute_temporal_rdm,\
+    make_pseudotrials, CDIST_METRICS
 from ..testing import generate_epoch
 
 rng = np.random.RandomState(42)
 # silence the output for tests
 mne.set_log_level("CRITICAL")
 log.setLevel(logging.CRITICAL)
-
-
-def test_npairs():
-    for nitems in [100, 101]:
-        assert(int(nitems * (nitems-1)/2. + nitems) == _npairs(nitems))
-        assert(isinstance(_npairs(nitems), int))
-    with pytest.raises(ValueError):
-        _npairs(1)
 
 
 def test_mean_group():
@@ -65,8 +59,9 @@ def test_compute_fold(cv_normalize_noise):
     train = np.array(train).flatten().astype(int)
     test = np.array(test).flatten().astype(int)
 
-    rdms, target_pairs = _compute_fold(
-        epoch, targets, train, test, cv_normalize_noise=cv_normalize_noise)
+    metric_fx = CDIST_METRICS['correlation']
+    rdms, target_pairs = _compute_fold(metric_fx, targets, train, test, epoch,
+                                       cv_normalize_noise=cv_normalize_noise)
     n_times = len(epoch.times)
     n_pairwise_conditions = _npairs(n_conditions)
     n_pairwise_times = _npairs(n_times)
@@ -86,7 +81,7 @@ def test_compute_fold(cv_normalize_noise):
     # check that it fails if the targets are strings
     targets = map(str, targets)
     with pytest.raises(ValueError):
-        rdms = _compute_fold(epoch, targets, train, test,
+        rdms = _compute_fold(metric_fx, targets, train, test, epoch,
                              cv_normalize_noise=cv_normalize_noise)
 
 
@@ -104,7 +99,8 @@ def test_compute_fold_valuerrorcov():
         train = np.array(train).flatten().astype(int)
         test = np.array(test).flatten().astype(int)
 
-        _ = _compute_fold(epoch, targets, train, test,
+        _ = _compute_fold(CDIST_METRICS['correlation'],
+                          targets, train, test, epoch,
                           cv_normalize_noise='thisshouldfail')
 
 
@@ -119,10 +115,11 @@ def test_compute_fold_values():
     # let's use the same train and test
     train = test = np.arange(len(targets))
 
-    rdms, target_pairs = _compute_fold(epoch, targets,
-                                       train, test,
-                                       metric_fx=partial(_cdist,
-                                                         metric='euclidean'))
+    metric_euclidean = CDIST_METRICS['euclidean']
+
+    rdms, target_pairs = _compute_fold(metric_fx=metric_euclidean,
+                                       targets=targets, train=train, test=test,
+                                       epoch=epoch)
 
     epo_data = epoch.get_data()
     idx = 0
@@ -140,9 +137,7 @@ def test_compute_fold_values():
 @pytest.mark.parametrize("cv_normalize_noise", (None, 'epoch', 'baseline'))
 @pytest.mark.parametrize("n_splits", (4, 10))
 @pytest.mark.parametrize("batch_size", (2, 5))
-@pytest.mark.parametrize("metric_symmetric_time", (True, False))
-def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size,
-                              metric_symmetric_time):
+def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size):
     """Mostly a smoke test for combinations of parameters"""
     n_epochs_cond = 20
     n_conditions = 4
@@ -153,15 +148,12 @@ def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size,
     rdm, target_pairs = compute_temporal_rdm(
         epoch, cv=cv, targets=epoch.events[:, 2],
         cv_normalize_noise=cv_normalize_noise,
-        batch_size=batch_size, metric_symmetric_time=metric_symmetric_time)
+        batch_size=batch_size)
     n_times = len(epoch.times)
     n_pairwise_conditions = _npairs(n_conditions)
     n_pairwise_times = _npairs(n_times)
     assert_equal(rdm.shape[0], len(target_pairs))
-    if metric_symmetric_time:
-        assert_equal(rdm.shape, (n_pairwise_conditions, n_pairwise_times))
-    else:
-        assert_equal(rdm.shape, (n_pairwise_conditions, n_times*n_times))
+    assert_equal(rdm.shape, (n_pairwise_conditions, n_pairwise_times))
 
 
 def test_compute_temporal_rdm_batch_size():
@@ -217,72 +209,5 @@ def test_make_pseudotrials():
     assert_equal(avg_trials.shape[0], -(-epoch_data.shape[0]//navg))
     assert_equal(len(np.unique(avg_targets)), n_conditions)
     assert_equal(len(avg_targets), len(avg_trials))
-
-
-@pytest.mark.parametrize('metric', CDIST_METRICS)
-def test_cdist(metric):
-    x = np.random.randn(1, 10)
-    y = x + np.random.randn(*x.shape)/10000
-    out = _cdist(x, y, metric=metric)[0]
-    if metric == 'correlation':
-        out = np.tanh(out)
-        assert_array_almost_equal([1], out)
-        assert_array_almost_equal(np.corrcoef(x, y)[0, 1], out)
-        out = 1. - out
-    assert_array_almost_equal(out, cdist(x, y, metric=metric))
-
-
-def test_linearsvm():
-    # smoke test
-    n_epochs_cond = 20
-    n_conditions = 4
-    data, targets = make_blobs(n_samples=n_conditions*n_epochs_cond,
-                               n_features=10,
-                               centers=n_conditions)
-
-    train = test = np.arange(data.shape[0])
-    out = _linearsvm(data[train], data[test], targets[train], targets[test])
-    assert_array_equal(out.shape, (n_conditions * (n_conditions-1)/2 +
-                                   n_conditions,))
-    # check that we get perfect classification if we cheat
-    assert_array_equal(out, np.ones(out.shape))
-
-    # now test against SVC to make sure we get the same
-    n_epochs_cond = 20
-    n_conditions = 4
-    data, targets = make_blobs(n_samples=n_conditions*n_epochs_cond,
-                               n_features=10,
-                               centers=n_conditions)
-    unique_targets = np.unique(targets)
-    n_unique_targets = len(unique_targets)
-
-    train = np.arange(data.shape[0] // 2)
-    test = np.arange(data.shape[0] // 2, data.shape[0])
-    targets_train = targets[train]
-    targets_test = targets[test]
-    data_train = data[train]
-    data_test = data[test]
-    out = _linearsvm(data_train, data_test,
-                     targets_train, targets_test)
-
-    idx = 0
-    for t1 in range(n_unique_targets):
-        for t2 in range(t1, n_unique_targets):
-            if t1 == t2:
-                assert_equal(1., out[idx])
-            else:
-                mask_train = (targets_train == t1) | (targets_train == t2)
-                mask_test = (targets_test == t1) | (targets_test == t2)
-                # random assignment
-                svc = SVC(kernel='linear')
-                svc.fit(data_train[mask_train], targets_train[mask_train])
-                score = svc.score(data_test[mask_test],
-                                  targets_test[mask_test])
-                assert_array_almost_equal(score, out[idx])
-            idx += 1
-
-
-
-
 
 

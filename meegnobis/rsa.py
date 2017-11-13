@@ -1,100 +1,19 @@
 """Module containing functions for temporal RSA"""
+from itertools import islice
+
 import mne
 import numpy as np
-from functools import partial
-from itertools import islice
+from joblib.parallel import Parallel, delayed
 from mne import EpochsArray
 from mne.cov import compute_whitener
 from numpy.testing import assert_array_equal
-from joblib.parallel import Parallel, delayed
-from scipy.spatial.distance import cdist
 from sklearn.model_selection import StratifiedShuffleSplit
-from sklearn.svm import SVC
 
-# setup log
+from .metrics import CDIST_METRICS
+from .utils import _npairs, _get_unique_targets
 from .log import log
+
 log.name = __name__
-
-# TODO: add more from cdist?
-CDIST_METRICS = [
-    'cityblock',
-    'correlation',
-    'cosine',
-    'dice',
-    'euclidean',
-    'hamming',
-    'sqeuclidean'
-]
-OUR_METRICS = dict()
-
-
-def _npairs(n_items):
-    """Return the number of pairs given n_items; corresponds to the length
-    of a triu matrix (diagonal included)"""
-    if n_items < 2:
-        raise ValueError("More than two items required, "
-                         "passed {0}".format(n_items))
-    n_pairs = int(n_items * (n_items - 1) / 2. + n_items)
-    return n_pairs
-
-
-def _cdist(x, y, metric='correlation', targets_train=None, targets_test=None):
-    """Computes correlation between x and y and fisher-transforms the output
-
-    See scipy.spatial.cdist for more information"""
-    rdm = cdist(x, y, metric=metric)
-    if metric == 'correlation':
-        rdm = np.arctanh(1. - rdm)
-    # now we need to impose symmetry
-    rdm += rdm.T
-    rdm /= 2.
-    # then return only the upper triangular matrix
-    return rdm[np.triu_indices_from(rdm)]
-
-
-def _linearsvm(data_train, data_test, targets_train, targets_test):
-    """
-    Parameters
-    ----------
-    data_train
-    data_test
-    targets_train
-    targets_test
-
-    Returns
-    -------
-
-    """
-    svc = SVC(kernel='linear')
-    # we need to loop through all pairwise targets
-    unique_targets = _get_unique_targets(targets_train, targets_test)
-    n_unique_targets = len(unique_targets)
-    n_pairwise_targets = _npairs(n_unique_targets)
-    # preallocate output
-    rdm = np.ones(n_pairwise_targets)
-    idx = 0
-    for p1 in range(n_unique_targets):
-        for p2 in range(p1, n_unique_targets):
-            # because it's classification, it doesn't make any sense
-            # to run classification with one class, so we return 1. for
-            # consistency
-            if p1 == p2:
-                continue
-            target1 = unique_targets[p1]
-            target2 = unique_targets[p2]
-            mask_train = (targets_train == target1) | \
-                         (targets_train == target2)
-            mask_test = (targets_test == target1) | \
-                        (targets_test == target2)
-            # training
-            svc.fit(data_train[mask_train], targets_train[mask_train])
-            # score
-            rdm[idx] = svc.score(data_test[mask_test], targets_test[mask_test])
-            idx += 1
-    return rdm
-
-
-OUR_METRICS['linearsvm'] = _linearsvm
 
 
 def mean_group(array, targets):
@@ -125,13 +44,122 @@ def mean_group(array, targets):
     return avg_array, unique_targets
 
 
-def _compute_fold(epoch, targets, train, test, metric_fx=_cdist,
-                  cv_normalize_noise=None, mean_groups=True,
-                  metric_symmetric_time=True):
+def _run_metric_binarytargets(metric_fx, data_train, targets_train, data_test,
+                              targets_test):
+    """
+    Parameters
+    ----------
+    data_train
+    data_test
+    targets_train
+    targets_test
+
+    Returns
+    -------
+
+    """
+    # check if we have one of our metrics
+    try:
+        vectorized = metric_fx.is_vectorized
+    except AttributeError:
+        vectorized = False
+
+    if vectorized:
+        # the mtric should blow up if we get more than n_pairwise_targets
+        metric_fx.fit(data_train, targets_train)
+        rdm = metric_fx.score(data_test, targets_test)
+    else:
+        # we need to loop through all pairwise targets
+        unique_targets = _get_unique_targets(targets_train, targets_test)
+        n_unique_targets = len(unique_targets)
+        n_pairwise_targets = _npairs(n_unique_targets)
+        # preallocate output
+        rdm = np.ones(n_pairwise_targets)
+        idx = 0
+        for p1 in range(n_unique_targets):
+            for p2 in range(p1, n_unique_targets):
+                target1 = unique_targets[p1]
+                target2 = unique_targets[p2]
+                mask_train = (targets_train == target1) | \
+                             (targets_train == target2)
+                mask_test = (targets_test == target1) | \
+                            (targets_test == target2)
+                # training
+                metric_fx.fit(data_train[mask_train],
+                              targets_train[mask_train])
+                # score
+                rdm[idx] = metric_fx.score(data_test[mask_test],
+                                           targets_test[mask_test])
+                idx += 1
+    return rdm
+
+
+def _run_metric(metric_fx, epoch_train, targets_train,
+                epoch_test, targets_test):
+    # check if metric is symmetric
+    try:
+        symmetric = metric_fx.is_symmetric
+    except AttributeError:
+        symmetric = False
+    # get some vars
+    n_times = epoch_train.shape[-1]
+    times = range(n_times)
+    unique_targets = _get_unique_targets(targets_train, targets_test)
+    n_unique_targets = len(unique_targets)
+    n_pairwise_targets = _npairs(n_unique_targets)
+    n_pairwise_times = _npairs(n_times) if symmetric \
+        else n_times * n_times
+    # preallocate output
+    rdms = np.zeros((n_pairwise_targets, n_pairwise_times))
+    # compute pairwise metric
+    idx = 0
+    for t1 in range(n_times):
+        start_t2 = t1 if symmetric else 0
+        for t2 in range(start_t2, n_times):
+            if idx % 1000 == 0:
+                log.info("Running RDM for training, testing times "
+                         "({0}, {1})".format(times[t1], times[t2]))
+            # now store only the upper triangular matrix
+            rdms[:, idx] = _run_metric_binarytargets(metric_fx,
+                                                     epoch_train[..., t1],
+                                                     targets_train,
+                                                     epoch_test[..., t2],
+                                                     targets_test)
+            idx += 1
+    return rdms
+
+
+def _multiv_normalize(epoch_train, epoch_test, cv_normalize_noise=None):
+    if cv_normalize_noise not in ('epoch', 'baseline', None):
+        raise ValueError(
+            "cv_normalize_noise must be one of {0}".format(
+                ('epoch', 'baseline', None)))
+    if cv_normalize_noise:
+        log.info("Applying multivariate noise normalization "
+                 "with method '{0}'".format(cv_normalize_noise))
+        tmax = 0. if cv_normalize_noise == 'baseline' else None
+        cov_train = mne.compute_covariance(epoch_train,
+                                           tmax=tmax, method='shrunk')
+        W_train, ch_names = compute_whitener(cov_train, epoch_train.info)
+        # whiten both training and testing set
+        epoch_train = np.array([np.dot(W_train, e)
+                                for e in epoch_train.get_data()])
+        epoch_test = np.array([np.dot(W_train, e)
+                               for e in epoch_test.get_data()])
+    else:
+        epoch_train = epoch_train.get_data()
+        epoch_test = epoch_test.get_data()
+    return epoch_train, epoch_test
+
+
+def _compute_fold(metric_fx, targets, train, test, epoch,
+                  cv_normalize_noise=None, mean_groups=True):
     """Computes pairwise metric across time for one fold
 
     Arguments
     ---------
+    metric_fx : function(x, y, targets_train, targets_test)
+        any function that returns a scalar given two arrays.
     epoch : instance of mne.Epoch
     targets : array (n_trials,)
         target (condition) for each trials; they must be integers
@@ -139,8 +167,6 @@ def _compute_fold(epoch, targets, train, test, metric_fx=_cdist,
         indices of the training data
     test : array-like of int
         indices of the testing data
-    metric_fx : function(x, y, targets_train, targets_test)
-        any function that returns a scalar given two arrays.
         This condition must hold: metric_fx(x, y) == metric_fx(y, x)
     cv_normalize_noise : str | None (default None)
         Multivariate normalize the trials before computing the distance between
@@ -170,7 +196,7 @@ def _compute_fold(epoch, targets, train, test, metric_fx=_cdist,
     # matrix is computed within each target
     events_ = epoch.events.copy()
     events_[:, 2] = targets
-    epoch_ = EpochsArray(epoch._data, info=epoch.info,
+    epoch_ = EpochsArray(epoch.get_data(), info=epoch.info,
                          events=events_, tmin=epoch.times[0])
     epoch_.baseline = epoch.baseline
 
@@ -192,8 +218,8 @@ def _compute_fold(epoch, targets, train, test, metric_fx=_cdist,
         # the targets should be the same in both training and testing
         # set or else we are correlating weird things together
         assert_array_equal(targets_train, targets_test)
-    rdms = _run_metric(epoch_train, epoch_test, targets_train, targets_test,
-                       metric_fx, metric_symmetric_time)
+    rdms = _run_metric(metric_fx, epoch_train, targets_train, epoch_test,
+                       targets_test)
 
     # return also the pairs labels. since we are taking triu, we loop first
     # across rows
@@ -204,67 +230,6 @@ def _compute_fold(epoch, targets, train, test, metric_fx=_cdist,
             targets_pairs.append('+'.join(map(str, [tr_lbl, te_lbl])))
 
     return rdms, targets_pairs
-
-
-def _multiv_normalize(epoch_train, epoch_test, cv_normalize_noise=None):
-    if cv_normalize_noise not in ('epoch', 'baseline', None):
-        raise ValueError(
-            "cv_normalize_noise must be one of {0}".format(
-                ('epoch', 'baseline', None)))
-    if cv_normalize_noise:
-        log.info("Applying multivariate noise normalization "
-                 "with method '{0}'".format(cv_normalize_noise))
-        tmax = 0. if cv_normalize_noise == 'baseline' else None
-        cov_train = mne.compute_covariance(epoch_train,
-                                           tmax=tmax, method='shrunk')
-        W_train, ch_names = compute_whitener(cov_train, epoch_train.info)
-        # whiten both training and testing set
-        epoch_train = np.array([np.dot(W_train, e)
-                                for e in epoch_train.get_data()])
-        epoch_test = np.array([np.dot(W_train, e)
-                               for e in epoch_test.get_data()])
-    else:
-        epoch_train = epoch_train.get_data()
-        epoch_test = epoch_test.get_data()
-    return epoch_train, epoch_test
-
-
-def _get_unique_targets(targets_train, targets_test):
-    unique_targets_train = np.unique(targets_train)
-    unique_targets_test = np.unique(targets_test)
-    unique_targets = sorted(set(unique_targets_train).
-                            intersection(unique_targets_test))
-    return unique_targets
-
-
-def _run_metric(epoch_train, epoch_test, targets_train, targets_test,
-                metric_fx=_cdist, metric_symmetric_time=True):
-    n_times = epoch_train.shape[-1]
-    times = range(n_times)
-    unique_targets = _get_unique_targets(targets_train, targets_test)
-    n_unique_targets = len(unique_targets)
-    n_pairwise_targets = _npairs(n_unique_targets)
-    n_pairwise_times = _npairs(n_times) if metric_symmetric_time \
-        else n_times * n_times
-    # preallocate output
-    rdms = np.zeros((n_pairwise_targets, n_pairwise_times))
-    # compute pairwise metric
-    idx = 0
-    for t1 in range(n_times):
-        start_t2 = t1 if metric_symmetric_time else 0
-        for t2 in range(start_t2, n_times):
-            if idx % 1000 == 0:
-                log.info("Running RDM for training, testing times "
-                         "({0}, {1})".format(times[t1], times[t2]))
-            # recomputing everything
-            rdm = metric_fx(epoch_train[..., t1],
-                            epoch_test[..., t2],
-                            targets_train=targets_train,
-                            targets_test=targets_test)
-            # now store only the upper triangular matrix
-            rdms[:, idx] = rdm
-            idx += 1
-    return rdms
 
 
 def compute_temporal_rdm(epoch, targets, metric='correlation',
@@ -320,11 +285,15 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
     """
     # set up metric
     if metric in CDIST_METRICS:
-        metric_fx = partial(_cdist, metric=metric)
-    elif metric in OUR_METRICS:
-        metric_fx = OUR_METRICS[metric]
+        metric_fx = CDIST_METRICS[metric]
+    elif hasattr(metric, 'fit') and hasattr(metric, 'score'):
+        metric_fx = metric
     else:
-        raise ValueError("I don't know about metric {0}".format(metric))
+        raise ValueError(
+            "I don't know how to deal with metric {0}. It's not one of {1} "
+            "and it doesn't have fit/score attributes".format(
+                metric, sorted(CDIST_METRICS.keys())))
+
     splits = cv.split(targets, targets)
     n_splits = cv.get_n_splits(targets)
 
@@ -337,9 +306,7 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
     for i_batch in range(n_batches):
         log.info("Running batch {0}/{1}".format(i_batch+1, n_batches))
         rdm_cv = Parallel(n_jobs=n_jobs)(
-            delayed(_compute_fold)(epoch, targets, train, test,
-                                   metric_fx=metric_fx,
-                                   metric_symmetric_time=metric_symmetric_time,
+            delayed(_compute_fold)(metric_fx, targets, train, test, epoch,
                                    cv_normalize_noise=cv_normalize_noise)
             for train, test in islice(splits, batch_size))
         rdm_cv, targets_pairs = zip(*rdm_cv)
