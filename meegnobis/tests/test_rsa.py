@@ -61,7 +61,8 @@ def test_compute_fold(cv_normalize_noise):
 
     metric_fx = CDIST_METRICS['correlation']
     rdms, target_pairs = _compute_fold(metric_fx, targets, train, test, epoch,
-                                       cv_normalize_noise=cv_normalize_noise)
+                                       cv_normalize_noise=cv_normalize_noise,
+                                       mean_groups=True)
     n_times = len(epoch.times)
     n_pairwise_conditions = _npairs(n_conditions)
     n_pairwise_times = _npairs(n_times)
@@ -82,7 +83,8 @@ def test_compute_fold(cv_normalize_noise):
     targets = map(str, targets)
     with pytest.raises(ValueError):
         rdms = _compute_fold(metric_fx, targets, train, test, epoch,
-                             cv_normalize_noise=cv_normalize_noise)
+                             cv_normalize_noise=cv_normalize_noise,
+                             mean_groups=True)
 
 
 def test_compute_fold_valuerrorcov():
@@ -148,7 +150,7 @@ def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size):
     rdm, target_pairs = compute_temporal_rdm(
         epoch, cv=cv, targets=epoch.events[:, 2],
         cv_normalize_noise=cv_normalize_noise,
-        batch_size=batch_size)
+        batch_size=batch_size, mean_groups=True)
     n_times = len(epoch.times)
     n_pairwise_conditions = _npairs(n_conditions)
     n_pairwise_times = _npairs(n_times)
@@ -168,11 +170,11 @@ def test_compute_temporal_rdm_batch_size():
     # one batch
     rdm1, target_pairs1 = compute_temporal_rdm(
         epoch, cv=cv, targets=epoch.events[:, 2],
-        batch_size=20)
+        batch_size=20, mean_groups=True)
     # two batches
     rdm2, target_pairs2 = compute_temporal_rdm(
         epoch, cv=cv, targets=epoch.events[:, 2],
-        batch_size=5)
+        batch_size=5, mean_groups=True)
     assert_array_almost_equal(rdm1, rdm2)
     assert_array_equal(target_pairs1, target_pairs2)
 

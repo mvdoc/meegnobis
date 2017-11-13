@@ -157,21 +157,20 @@ def _multiv_normalize(epoch_train, epoch_test, cv_normalize_noise=None):
 
 
 def _compute_fold(metric_fx, targets, train, test, epoch,
-                  cv_normalize_noise=None, mean_groups=True):
+                  cv_normalize_noise=None, mean_groups=False):
     """Computes pairwise metric across time for one fold
 
     Arguments
     ---------
-    metric_fx : function(x, y, targets_train, targets_test)
-        any function that returns a scalar given two arrays.
-    epoch : instance of mne.Epoch
+    metric_fx : either an allowed string (e.g., 'correlation') or an object
+        with attributes 'fit' and 'score' (similar to scikit-learn estimators)
     targets : array (n_trials,)
         target (condition) for each trials; they must be integers
     train : array-like of int
         indices of the training data
     test : array-like of int
         indices of the testing data
-        This condition must hold: metric_fx(x, y) == metric_fx(y, x)
+    epoch : instance of mne.Epoch
     cv_normalize_noise : str | None (default None)
         Multivariate normalize the trials before computing the distance between
         pairwise conditions.
@@ -179,14 +178,15 @@ def _compute_fold(metric_fx, targets, train, test, epoch,
             - 'epoch' computes the covariance matrix on the entire epoch;
             - 'baseline' uses only the baseline condition; requires to pass an
               array times
+    mean_groups : bool (default False)
+        Whether the trials belonging to each target should be averaged prior
+        to running the metric. This is useful if the metric is a distance
+        metrix. Should be set to False for classification.
 
     Returns
     -------
     rdms: array (n_pairwise_targets, n_pairwise_times)
-        the cross-validated RDM over time; for efficiency purposes, it returns
-        only the upper triangular matrix over time, thus it assumes that the
-        metric is symmetric (this assumption doesn't hold for example for
-        classification).
+        the cross-validated RDM over time
     targets_pairs : list of len n_pairwise_targets
         the labels corresponding to each element in rdms
     """
@@ -238,7 +238,7 @@ def _compute_fold(metric_fx, targets, train, test, epoch,
 
 def compute_temporal_rdm(epoch, targets, metric='correlation',
                          cv=StratifiedShuffleSplit(n_splits=10, test_size=0.5),
-                         cv_normalize_noise=None, metric_symmetric_time=True,
+                         cv_normalize_noise=None, mean_groups=False,
                          n_jobs=1, batch_size=200):
     """Computes pairwise metric across time
 
@@ -247,10 +247,11 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
     epoch : instance of mne.Epoch
     targets : array (n_trials,)
         target (condition) for each trials
-    metric: str
+    metric: str | BaseMetric | sklearn estimator
         type of metric to use, one of 'cityblock', 'correlation', 'cosine',
-        'dice', 'euclidean', 'hamming', 'sqeuclidean' for distances, or
-        'linearsvm' for classification.
+        'dice', 'euclidean', 'hamming', 'sqeuclidean' for distances.
+        Alternatively, any object with attributes fit/score, similar to
+        sklearn estimators.
     cv : instance of sklearn cross-validator
         (default StratifiedShuffleSplit(n_splits=10, test_size=0.5)
     cv_normalize_noise : str | None (default None)
@@ -260,14 +261,10 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
             - 'epoch' computes the covariance matrix on the entire epoch;
             - 'baseline' uses only the baseline condition; requires to pass an
               array times
-    metric_symmetric_time: bool (default True)
-        Whether the metric can be considered symmetric for time. For example,
-        this is true for distances because
-        m(t_train, t_test) == m(t_test, t_train)
-        but it's not true for classification, because the order matters for
-        training. If `metric_symmetric_time` is set to True, only the upper
-        diagonal matrix (for time) is computed; otherwise, the entire matrix
-        is returned.
+    mean_groups : bool (default False)
+        Whether the trials belonging to each target should be averaged prior
+        to running the metric. This is useful if the metric is a distance
+        metrix. Should be set to False for classification.
     n_jobs : int (default 1)
     batch_size : int (default 200)
         size of the batches for cross-validation. To be used if the
@@ -311,6 +308,7 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
         log.info("Running batch {0}/{1}".format(i_batch+1, n_batches))
         rdm_cv = Parallel(n_jobs=n_jobs)(
             delayed(_compute_fold)(metric_fx, targets, train, test, epoch,
+                                   mean_groups=mean_groups,
                                    cv_normalize_noise=cv_normalize_noise)
             for train, test in islice(splits, batch_size))
         rdm_cv, targets_pairs = zip(*rdm_cv)
