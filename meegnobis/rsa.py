@@ -99,7 +99,7 @@ def _run_metric_binarytargets(metric_fx, data_train, targets_train, data_test,
 
 
 def _run_metric(metric_fx, epoch_train, targets_train,
-                epoch_test, targets_test):
+                epoch_test, targets_test, time_diag_only=False):
     # check if metric is symmetric
     try:
         symmetric = metric_fx.is_symmetric
@@ -111,15 +111,19 @@ def _run_metric(metric_fx, epoch_train, targets_train,
     unique_targets = _get_unique_targets(targets_train, targets_test)
     n_unique_targets = len(unique_targets)
     n_pairwise_targets = _npairs(n_unique_targets)
-    n_pairwise_times = _npairs(n_times) if symmetric \
-        else n_times * n_times
+    if time_diag_only:
+        n_pairwise_times = n_times
+    else:
+        n_pairwise_times = _npairs(n_times) if symmetric \
+            else n_times * n_times
     # preallocate output
     rdms = np.zeros((n_pairwise_targets, n_pairwise_times))
     # compute pairwise metric
     idx = 0
     for t1 in range(n_times):
-        start_t2 = t1 if symmetric else 0
-        for t2 in range(start_t2, n_times):
+        start_t2 = t1 if symmetric or time_diag_only else 0
+        end_t2 = t1 + 1 if time_diag_only else n_times
+        for t2 in range(start_t2, end_t2):
             if idx % 1000 == 0:
                 log.info("Running RDM for training, testing times "
                          "({0}, {1})".format(times[t1], times[t2]))
@@ -157,7 +161,8 @@ def _multiv_normalize(epoch_train, epoch_test, cv_normalize_noise=None):
 
 
 def _compute_fold(metric_fx, targets, train, test, epoch,
-                  cv_normalize_noise=None, mean_groups=False):
+                  cv_normalize_noise=None, mean_groups=False,
+                  time_diag_only=False):
     """Computes pairwise metric across time for one fold
 
     Arguments
@@ -181,7 +186,11 @@ def _compute_fold(metric_fx, targets, train, test, epoch,
     mean_groups : bool (default False)
         Whether the trials belonging to each target should be averaged prior
         to running the metric. This is useful if the metric is a distance
-        metrix. Should be set to False for classification.
+        metric. Should be set to False for classification.
+
+    time_diag_only : bool (default False)
+        Whether to run only for the diagonal in time,
+        e.g. for train_time == test_time
 
     Returns
     -------
@@ -223,7 +232,7 @@ def _compute_fold(metric_fx, targets, train, test, epoch,
         # set or else we are correlating weird things together
         assert_array_equal(targets_train, targets_test)
     rdms = _run_metric(metric_fx, epoch_train, targets_train, epoch_test,
-                       targets_test)
+                       targets_test, time_diag_only=time_diag_only)
 
     # return also the pairs labels. since we are taking triu, we loop first
     # across rows
@@ -239,6 +248,7 @@ def _compute_fold(metric_fx, targets, train, test, epoch,
 def compute_temporal_rdm(epoch, targets, metric='correlation',
                          cv=StratifiedShuffleSplit(n_splits=10, test_size=0.5),
                          cv_normalize_noise=None, mean_groups=False,
+                         time_diag_only=False,
                          n_jobs=1, batch_size=200):
     """Computes pairwise metric across time
 
@@ -264,7 +274,10 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
     mean_groups : bool (default False)
         Whether the trials belonging to each target should be averaged prior
         to running the metric. This is useful if the metric is a distance
-        metrix. Should be set to False for classification.
+        metric. Should be set to False for classification.
+    time_diag_only : bool (default False)
+        Whether to run only for the diagonal in time,
+        e.g. for train_time == test_time
     n_jobs : int (default 1)
     batch_size : int (default 200)
         size of the batches for cross-validation. To be used if the
@@ -309,7 +322,8 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
         rdm_cv = Parallel(n_jobs=n_jobs)(
             delayed(_compute_fold)(metric_fx, targets, train, test, epoch,
                                    mean_groups=mean_groups,
-                                   cv_normalize_noise=cv_normalize_noise)
+                                   cv_normalize_noise=cv_normalize_noise,
+                                   time_diag_only=time_diag_only)
             for train, test in islice(splits, batch_size))
         rdm_cv, targets_pairs = zip(*rdm_cv)
         if rdm is None:

@@ -139,7 +139,9 @@ def test_compute_fold_values():
 @pytest.mark.parametrize("cv_normalize_noise", (None, 'epoch', 'baseline'))
 @pytest.mark.parametrize("n_splits", (4, 10))
 @pytest.mark.parametrize("batch_size", (2, 5))
-def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size):
+@pytest.mark.parametrize("time_diag_only", (True, False))
+def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size,
+                              time_diag_only):
     """Mostly a smoke test for combinations of parameters"""
     n_epochs_cond = 20
     n_conditions = 4
@@ -150,10 +152,11 @@ def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size):
     rdm, target_pairs = compute_temporal_rdm(
         epoch, cv=cv, targets=epoch.events[:, 2],
         cv_normalize_noise=cv_normalize_noise,
-        batch_size=batch_size, mean_groups=True)
+        batch_size=batch_size, mean_groups=True,
+        time_diag_only=time_diag_only)
     n_times = len(epoch.times)
     n_pairwise_conditions = _npairs(n_conditions)
-    n_pairwise_times = _npairs(n_times)
+    n_pairwise_times = n_times if time_diag_only else _npairs(n_times)
     assert_equal(rdm.shape[0], len(target_pairs))
     assert_equal(rdm.shape, (n_pairwise_conditions, n_pairwise_times))
 
