@@ -16,7 +16,7 @@ from sklearn.svm import SVC
 from meegnobis.utils import _npairs
 from ..log import log
 from ..rsa import mean_group, _compute_fold, compute_temporal_rdm,\
-    make_pseudotrials, CDIST_METRICS, _run_metric
+    _make_pseudotrials_array, CDIST_METRICS, _run_metric, make_pseudotrials
 from ..testing import generate_epoch
 
 rng = np.random.RandomState(42)
@@ -191,7 +191,16 @@ def test_make_pseudotrials():
     targets = epoch.events[:, 2]
     epoch_data = epoch.get_data()
     navg = 4
-    avg_trials, avg_targets = make_pseudotrials(epoch_data, targets, navg=navg)
+    rng2 = np.random.RandomState(52)
+    avg_trials, avg_targets = _make_pseudotrials_array(epoch_data, targets,
+                                                       navg=navg, rng=rng2)
+    rng2 = np.random.RandomState(52)
+    avg_epoch, avg_targets_ = make_pseudotrials(epoch, targets, navg=navg,
+                                                rng=rng2)
+    assert_array_equal(avg_trials, avg_epoch.get_data())
+    assert_array_equal(avg_targets, avg_targets_)
+    assert_array_equal(avg_epoch.events[:, -1], avg_targets_)
+    assert_equal(avg_epoch.baseline, epoch.baseline)
     # check we get the right shape of the data
     assert_equal(avg_trials.shape[0], -(-epoch_data.shape[0]//navg))
     assert_array_equal(avg_trials.shape[1:], epoch_data.shape[1:])
@@ -199,8 +208,8 @@ def test_make_pseudotrials():
     assert_equal(len(np.unique(avg_targets)), n_conditions)
 
     # check we have randomization going on
-    avg_trials2, avg_targets2 = make_pseudotrials(epoch_data, targets,
-                                                  navg=navg)
+    avg_trials2, avg_targets2 = _make_pseudotrials_array(epoch_data, targets,
+                                                         navg=navg)
     assert_array_equal(avg_targets, avg_targets2)
     assert(not np.allclose(avg_trials, avg_trials2))
 
@@ -210,7 +219,8 @@ def test_make_pseudotrials():
     # just to be sure it's odd
     assert(len(targets) % 2 == 1)
     assert(len(epoch_data) % 2 == 1)
-    avg_trials, avg_targets = make_pseudotrials(epoch_data, targets, navg=navg)
+    avg_trials, avg_targets = _make_pseudotrials_array(epoch_data, targets,
+                                                       navg=navg)
     assert_equal(avg_trials.shape[0], -(-epoch_data.shape[0]//navg))
     assert_equal(len(np.unique(avg_targets)), n_conditions)
     assert_equal(len(avg_targets), len(avg_trials))
