@@ -337,7 +337,7 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
     return rdm, targets_pairs[0]
 
 
-def make_pseudotrials(array, targets, navg=4):
+def _make_pseudotrials_array(array, targets, navg=4, rng=None):
     """Create pseudotrials by averaging within each group defined in `targets`
     a number `navg` of trials. The trials are randomly divided into groups of
     size `navg` for each target. If the number of trials in a group is not
@@ -350,6 +350,7 @@ def make_pseudotrials(array, targets, navg=4):
     targets : (n_epochs,)
     navg : int
         number of trials to average
+    rng : random number generator
 
     Returns
     -------
@@ -358,6 +359,9 @@ def make_pseudotrials(array, targets, navg=4):
     avg_targets : (ceil(n_epochs/navg),)
         unique targets corresponding to the avg_trials
     """
+    if rng is None:
+        rng = np.random.RandomState()
+
     unique_targets, count_targets = np.unique(targets, return_counts=True)
     # count how many new trials we're getting for each condition
     n_splits_targets = -(-count_targets//navg)
@@ -367,7 +371,7 @@ def make_pseudotrials(array, targets, navg=4):
     for i, t in enumerate(unique_targets):
         idx_target = np.where(targets == t)[0]
         # shuffle so we randomly pick them
-        np.random.shuffle(idx_target)
+        rng.shuffle(idx_target)
         idx_avg[t] = np.array_split(idx_target, n_splits_targets[i])
     # now average
     avg_trials = np.zeros((n_avg_trials, array.shape[1], array.shape[2]))
@@ -380,3 +384,37 @@ def make_pseudotrials(array, targets, navg=4):
             itrial += 1
     avg_targets = np.asarray(avg_targets)
     return avg_trials, avg_targets
+
+
+def make_pseudotrials(epoch, targets, navg=4, rng=None):
+    """Create pseudotrials by averaging within each group defined in `targets`
+    a number `navg` of trials. The trials are randomly divided into groups of
+    size `navg` for each target. If the number of trials in a group is not
+    divisible by `navg`, one pseudotrials will be created by averaging the
+    remainder trials.
+
+    Parameters
+    ----------
+    epoch : mne.Epoch
+    targets : (n_epochs,)
+    navg : int
+        number of trials to average
+    rng : random number generator
+
+    Returns
+    -------
+    avg_epoch : mne.Epoch
+        epoch with ceil(n_epochs/navg) trials
+    avg_targets : (ceil(n_epochs/navg),)
+        unique targets corresponding to the avg_trials
+    """
+    data = epoch.get_data()
+    data_avg, avg_targets = _make_pseudotrials_array(data, targets,
+                                                     navg=navg, rng=rng)
+
+    avg_epoch = mne.EpochsArray(data_avg, tmin=epoch.times[-1],
+                                info=epoch.info)
+    avg_epoch.events[:, -1] = avg_targets
+    avg_epoch.baseline = epoch.baseline
+
+    return avg_epoch, avg_targets
