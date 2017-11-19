@@ -228,9 +228,8 @@ def _compute_fold(metric_fx, targets, train, test, epoch,
     # across rows
     unique_targets = _get_unique_targets(targets_train, targets_test)
     targets_pairs = []
-    for i_tr, tr_lbl in enumerate(unique_targets):
-        for _, te_lbl in enumerate(unique_targets[i_tr:]):
-            targets_pairs.append('+'.join(map(str, [tr_lbl, te_lbl])))
+    for tr_lbl, te_lbl in _get_combinations_triu(unique_targets):
+        targets_pairs.append('+'.join(map(str, [tr_lbl, te_lbl])))
 
     return rdms, targets_pairs
 
