@@ -44,58 +44,22 @@ def mean_group(array, targets):
     return avg_array, unique_targets
 
 
-def _run_metric_binarytargets(metric_fx, data_train, targets_train, data_test,
-                              targets_test):
-    """
-    Parameters
-    ----------
-    data_train
-    data_test
-    targets_train
-    targets_test
+def _get_mask_binary_trials(target1, target2, targets_train, targets_test):
+    unique_targets = _get_unique_targets(targets_train, targets_test)
+    target1 = unique_targets[target1]
+    target2 = unique_targets[target2]
+    mask_train = (targets_train == target1) | \
+                 (targets_train == target2)
+    mask_test = (targets_test == target1) | \
+                (targets_test == target2)
+    return mask_train, mask_test
 
-    Returns
-    -------
 
-    """
-    # check if we have one of our metrics
-    try:
-        vectorized = metric_fx.is_vectorized
-    except AttributeError:
-        vectorized = False
-
-    if vectorized:
-        # the mtric should blow up if we get more than n_pairwise_targets
-        metric_fx.fit(data_train, targets_train)
-        rdm = metric_fx.score(data_test, targets_test)
-    else:
-        # we need to loop through all pairwise targets
-        unique_targets = _get_unique_targets(targets_train, targets_test)
-        n_unique_targets = len(unique_targets)
-        n_pairwise_targets = _npairs(n_unique_targets)
-        # preallocate output
-        rdm = np.ones(n_pairwise_targets)
-        idx = 0
-        for p1 in range(n_unique_targets):
-            for p2 in range(p1, n_unique_targets):
-                if p1 == p2:
-                    # doesn't make sense to run classification with one label
-                    rdm[idx] = 1.
-                else:
-                    target1 = unique_targets[p1]
-                    target2 = unique_targets[p2]
-                    mask_train = (targets_train == target1) | \
-                                 (targets_train == target2)
-                    mask_test = (targets_test == target1) | \
-                                (targets_test == target2)
-                    # training
-                    metric_fx.fit(data_train[mask_train],
-                                  targets_train[mask_train])
-                    # score
-                    rdm[idx] = metric_fx.score(data_test[mask_test],
-                                               targets_test[mask_test])
-                idx += 1
-    return rdm
+def _get_combinations_triu(unique_targets):
+    n_unique_targets = len(unique_targets)
+    for p1 in range(n_unique_targets):
+        for p2 in range(p1, n_unique_targets):
+            yield unique_targets[p1], unique_targets[p2]
 
 
 def _run_metric(metric_fx, epoch_train, targets_train,
@@ -107,7 +71,6 @@ def _run_metric(metric_fx, epoch_train, targets_train,
         symmetric = False
     # get some vars
     n_times = epoch_train.shape[-1]
-    times = range(n_times)
     unique_targets = _get_unique_targets(targets_train, targets_test)
     n_unique_targets = len(unique_targets)
     n_pairwise_targets = _npairs(n_unique_targets)
@@ -116,24 +79,51 @@ def _run_metric(metric_fx, epoch_train, targets_train,
     else:
         n_pairwise_times = _npairs(n_times) if symmetric \
             else n_times * n_times
-    # preallocate output
-    rdms = np.zeros((n_pairwise_targets, n_pairwise_times))
-    # compute pairwise metric
-    idx = 0
-    for t1 in range(n_times):
-        start_t2 = t1 if symmetric or time_diag_only else 0
-        end_t2 = t1 + 1 if time_diag_only else n_times
-        for t2 in range(start_t2, end_t2):
-            if idx % 1000 == 0:
-                log.info("Running RDM for training, testing times "
-                         "({0}, {1})".format(times[t1], times[t2]))
-            # now store only the upper triangular matrix
-            rdms[:, idx] = _run_metric_binarytargets(metric_fx,
-                                                     epoch_train[..., t1],
-                                                     targets_train,
-                                                     epoch_test[..., t2],
-                                                     targets_test)
-            idx += 1
+
+    # check if we have one of our metrics
+    try:
+        vectorized = metric_fx.is_vectorized
+    except AttributeError:
+        vectorized = False
+
+    # preallocate output with ones; for classification we assume that
+    # if target1 == target2, then acc = 1
+    rdms = np.ones((n_pairwise_targets, n_pairwise_times))
+    if vectorized:
+        # we don't need to loop explicitly through pairwise targets
+        itime = 0
+        # now we can loop through time
+        for t1 in range(n_times):
+            start_t2 = t1 if symmetric or time_diag_only else 0
+            end_t2 = t1 + 1 if time_diag_only else n_times
+            # fit only once
+            metric_fx.fit(epoch_train[..., t1], targets_train)
+            for t2 in range(start_t2, end_t2):
+                rdms[:, itime] = metric_fx.score(epoch_test[..., t2],
+                                                 targets_test)
+                itime += 1
+    else:
+        for ipair, (p1, p2) in enumerate(
+                _get_combinations_triu(unique_targets)):
+            if p1 != p2:
+                mask_train, mask_test = _get_mask_binary_trials(p1, p2,
+                                                                targets_train,
+                                                                targets_test)
+                data_train = epoch_train[mask_train]
+                data_test = epoch_test[mask_test]
+                targets_train_ = targets_train[mask_train]
+                targets_test_ = targets_test[mask_test]
+                itime = 0
+                # now we can loop through time
+                for t1 in range(n_times):
+                    start_t2 = t1 if symmetric or time_diag_only else 0
+                    end_t2 = t1 + 1 if time_diag_only else n_times
+                    # fit only once
+                    metric_fx.fit(data_train[..., t1], targets_train_)
+                    for t2 in range(start_t2, end_t2):
+                        rdms[ipair, itime] = \
+                            metric_fx.score(data_test[..., t2], targets_test_)
+                        itime += 1
     return rdms
 
 
