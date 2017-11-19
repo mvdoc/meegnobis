@@ -106,6 +106,8 @@ def _run_metric(metric_fx, epoch_train, targets_train,
     else:
         for ipair, (p1, p2) in enumerate(
                 _get_combinations_triu(unique_targets)):
+            log.info("Running for pair number {0} ({1}, {2})".format(ipair,
+                                                                     p1, p2))
             if p1 != p2:
                 mask_train, mask_test = _get_mask_binary_trials(p1, p2,
                                                                 targets_train,
@@ -117,7 +119,6 @@ def _run_metric(metric_fx, epoch_train, targets_train,
                 itime = 0
                 # now we can loop through time
                 for t1 in range(n_times):
-                    log.info("Training on time {0:.3f}".format(t1))
                     start_t2 = t1 if symmetric or time_diag_only else 0
                     end_t2 = t1 + 1 if time_diag_only else n_times
                     # fit only once
