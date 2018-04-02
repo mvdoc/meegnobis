@@ -290,14 +290,13 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
     -------
     rdm: ndarray (n_pairwise_targets, n_pairwise_times) or
                  (n_pairwise_targets, n_times * n_times)
-        the cross-validated RDM over time; if `metric_symmetric_time` was set
-        to True, then for efficiency purposes it returns
-        only the upper triangular matrix over time, and the full matrix can be
-        reconstructed with numpy.triu_indices_from. Otherwise, the entire
-        flattened matrix over time is returned, and the full matrix can be
-        reconstructed with np.reshape((n_times, n_times)). The order is row
-        first, then columns.
-    targets_pairs : list of len n_pairwise_targets
+        the cross-validated RDM over time; if the metric is symmetric,
+        then for efficiency purposes only the upper triangular matrix over
+        time is returned, and the full matrix can be reconstructed with
+        `np.triu_indices_from`. Otherwise, the entire flattened matrix over
+        time is returned, and the full matrix can be reconstructed with
+        `np.reshape((n_times, n_times))`. The order is row first, then columns.
+    targets_pairs : list-like (n_pairwise_targets,)
         the labels for each row of rdm
     """
     # set up metric
