@@ -442,8 +442,10 @@ def make_pseudotrials(epoch, targets, navg=4, rng=None):
     avg_epoch = mne.EpochsArray(data_avg, tmin=epoch.times[-1],
                                 info=epoch.info)
     # convert back to the original targets
-    avg_targets = [le.inverse_transform(t) for t in avg_targets]
     avg_epoch.events[:, -1] = avg_targets
+    avg_epoch.event_id = {
+        le.inverse_transform(t): t for t in np.unique(avg_targets)}
+    avg_targets = [le.inverse_transform(t) for t in avg_targets]
     avg_epoch.baseline = epoch.baseline
 
     return avg_epoch, avg_targets

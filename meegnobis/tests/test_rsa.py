@@ -226,9 +226,11 @@ def test_make_pseudotrials(addtargets):
     rng2 = np.random.RandomState(52)
     avg_epoch, avg_targets_ = make_pseudotrials(epoch, targets, navg=navg,
                                                 rng=rng2)
+    event2target = {e: t for t, e in avg_epoch.event_id.items()}
     assert_array_equal(avg_trials, avg_epoch.get_data())
     assert_array_equal(avg_targets, np.array(avg_targets_) - addtargets)
-    assert_array_equal(avg_epoch.events[:, -1], avg_targets_)
+    assert_array_equal(
+        [event2target[e] for e in avg_epoch.events[:, -1]], avg_targets_)
     assert_equal(avg_epoch.baseline, epoch.baseline)
     # check we get the right shape of the data
     assert_equal(avg_trials.shape[0], -(-epoch_data.shape[0]//navg))
@@ -256,6 +258,23 @@ def test_make_pseudotrials(addtargets):
     assert_equal(avg_trials.shape[0], -(-epoch_data.shape[0]//navg))
     assert_equal(len(np.unique(avg_targets)), n_conditions)
     assert_equal(len(avg_targets), len(avg_trials))
+
+
+def test_make_pseudotrials_str():
+    """Mostly a smoke-test to check it works with str targets"""
+    n_epochs_cond = 20
+    n_conditions = 4
+    epoch = generate_epoch(n_epochs_cond=n_epochs_cond,
+                           n_conditions=n_conditions)
+    labels = list('abcd')
+
+    targets = [labels[t] for t in epoch.events[:, -1]]
+    navg = 4
+    rng2 = np.random.RandomState(52)
+    avg_trials, avg_targets = make_pseudotrials(epoch, targets, navg=navg,
+                                                rng=rng2)
+    assert_array_equal(np.unique(targets), np.unique(avg_targets))
+    assert set(labels) == set(avg_trials.event_id.keys())
 
 
 def test_sklearn_clf():
