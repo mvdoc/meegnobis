@@ -3,7 +3,8 @@ import numpy as np
 import pytest
 
 from mne import create_info, EpochsArray
-from numpy.testing import assert_array_equal, assert_equal
+from numpy.testing import assert_array_equal, assert_array_almost_equal, \
+    assert_equal
 
 from meegnobis.utils import _npairs
 from ..utils import convolve, moving_average
@@ -83,8 +84,8 @@ def test_moving_average():
         twindow = 1/sfreq * i
         epochs_conv = moving_average(epochs, twindow)
         filt = np.ones(i)/float(i)
-        assert_array_equal(epochs_conv.get_data(),
-                           convolve(array_3d, filt))
+        assert_array_almost_equal(
+            epochs_conv.get_data(), convolve(array_3d, filt))
 
 
 def test_npairs():
