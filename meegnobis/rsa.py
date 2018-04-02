@@ -95,7 +95,7 @@ def _run_metric(metric_fx, epoch_train, targets_train,
         itime = 0
         # now we can loop through time
         for t1 in range(n_times):
-            log.info("Training on time {0:.3f}".format(t1))
+            # log.info("Training on time {0:.3f}".format(t1))
             start_t2 = t1 if symmetric or time_diag_only else 0
             end_t2 = t1 + 1 if time_diag_only else n_times
             # fit only once
