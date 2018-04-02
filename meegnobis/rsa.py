@@ -171,17 +171,21 @@ def _compute_fold(metric_fx, targets, train, test, epoch,
         indices of the testing data
     epoch : instance of mne.Epoch
     cv_normalize_noise : str | None (default None)
-        Multivariate normalize the trials before computing the distance between
-        pairwise conditions.
-        Valid values are 'epoch' | 'baseline' | None:
+        Multivariately normalize the trials before applying the metric
+        (distance or classification). Normalization is performed with
+        cross-validation, that is the covariance matrix is estimated in the
+        training set, and then applied to the test set. Normalization is
+        always performed on single trials, thus before averaging within each
+        class if `mean_groups` is set to True.
+        Valid values for `cv_normalize_noise` are 'epoch' | 'baseline' | None:
             - 'epoch' computes the covariance matrix on the entire epoch;
-            - 'baseline' uses only the baseline condition; requires to pass an
-              array times
+            - 'baseline' uses only the baseline condition; it requires `epoch`
+            to have a valid baseline (i.e., to have performed baseline
+            correction)
     mean_groups : bool (default False)
         Whether the trials belonging to each target should be averaged prior
         to running the metric. This is useful if the metric is a distance
         metric. Should be set to False for classification.
-
     time_diag_only : bool (default False)
         Whether to run only for the diagonal in time,
         e.g. for train_time == test_time
@@ -256,14 +260,20 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
         Alternatively, any object with attributes fit/score, similar to
         sklearn estimators.
     cv : instance of sklearn cross-validator
+        Cross-validator used to split the data into training/test datasets
         (default StratifiedShuffleSplit(n_splits=10, test_size=0.5)
     cv_normalize_noise : str | None (default None)
-        Multivariate normalize the trials before computing the distance between
-        pairwise conditions.
-        Valid values are 'epoch' | 'baseline' | None:
+        Multivariately normalize the trials before applying the metric
+        (distance or classification). Normalization is performed with
+        cross-validation, that is the covariance matrix is estimated in the
+        training set, and then applied to the test set. Normalization is
+        always performed on single trials, thus before averaging within each
+        class if `mean_groups` is set to True.
+        Valid values for `cv_normalize_noise` are 'epoch' | 'baseline' | None:
             - 'epoch' computes the covariance matrix on the entire epoch;
-            - 'baseline' uses only the baseline condition; requires to pass an
-              array times
+            - 'baseline' uses only the baseline condition; it requires `epoch`
+            to have a valid baseline (i.e., to have performed baseline
+            correction)
     mean_groups : bool (default False)
         Whether the trials belonging to each target should be averaged prior
         to running the metric. This is useful if the metric is a distance
