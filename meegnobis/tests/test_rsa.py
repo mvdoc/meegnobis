@@ -161,6 +161,31 @@ def test_compute_temporal_rdm(cv_normalize_noise, n_splits, batch_size,
     assert_equal(rdm.shape, (n_pairwise_conditions, n_pairwise_times))
 
 
+def test_compute_temporal_rdm_targets():
+    """Test that everything works even if targets are not standard (strings
+    and not within [0 nconditions-1]"""
+    n_epochs_cond = 20
+    n_conditions = 4
+    epoch = generate_epoch(n_epochs_cond=n_epochs_cond,
+                           n_conditions=n_conditions)
+
+    def _run_target(t):
+        cv = StratifiedShuffleSplit(n_splits=4, test_size=0.5, random_state=43)
+        return compute_temporal_rdm(epoch, cv=cv, targets=t, mean_groups=True)
+
+    targets = epoch.events[:, 2]
+    rdm, target_pairs = _run_target(targets)
+
+    targets_str = map(lambda x: str(x + 100), epoch.events[:, 2])
+    rdm_str, target_pairs_str = _run_target(targets_str)
+
+    targets_weird = map(lambda x: x + 100, epoch.events[:, 2])
+    rdm_w, target_pairs_w = _run_target(targets_weird)
+
+    assert_array_equal(rdm, rdm_str)
+    assert_array_equal(rdm, rdm_w)
+
+
 def test_compute_temporal_rdm_batch_size():
     # Check we get the same results regardless of batch_size
     n_epochs_cond = 20
@@ -182,23 +207,27 @@ def test_compute_temporal_rdm_batch_size():
     assert_array_equal(target_pairs1, target_pairs2)
 
 
-def test_make_pseudotrials():
+@pytest.mark.parametrize("addtargets", (0, 10, -100))
+def test_make_pseudotrials(addtargets):
     n_epochs_cond = 20
     n_conditions = 4
     epoch = generate_epoch(n_epochs_cond=n_epochs_cond,
                            n_conditions=n_conditions)
 
-    targets = epoch.events[:, 2]
+    # add something to test that we can use arbitrary indexing of targets
+    targets_conformed = epoch.events[:, 2]
+    targets = targets_conformed + addtargets
     epoch_data = epoch.get_data()
     navg = 4
     rng2 = np.random.RandomState(52)
-    avg_trials, avg_targets = _make_pseudotrials_array(epoch_data, targets,
+    avg_trials, avg_targets = _make_pseudotrials_array(epoch_data,
+                                                       targets_conformed,
                                                        navg=navg, rng=rng2)
     rng2 = np.random.RandomState(52)
     avg_epoch, avg_targets_ = make_pseudotrials(epoch, targets, navg=navg,
                                                 rng=rng2)
     assert_array_equal(avg_trials, avg_epoch.get_data())
-    assert_array_equal(avg_targets, avg_targets_)
+    assert_array_equal(avg_targets, np.array(avg_targets_) - addtargets)
     assert_array_equal(avg_epoch.events[:, -1], avg_targets_)
     assert_equal(avg_epoch.baseline, epoch.baseline)
     # check we get the right shape of the data
@@ -208,7 +237,8 @@ def test_make_pseudotrials():
     assert_equal(len(np.unique(avg_targets)), n_conditions)
 
     # check we have randomization going on
-    avg_trials2, avg_targets2 = _make_pseudotrials_array(epoch_data, targets,
+    avg_trials2, avg_targets2 = _make_pseudotrials_array(epoch_data,
+                                                         targets_conformed,
                                                          navg=navg)
     assert_array_equal(avg_targets, avg_targets2)
     assert(not np.allclose(avg_trials, avg_trials2))
@@ -216,10 +246,12 @@ def test_make_pseudotrials():
     # check it works even with an odd number of trials
     epoch_data = epoch_data[1:]
     targets = targets[1:]
+    targets_conformed = targets + addtargets
     # just to be sure it's odd
     assert(len(targets) % 2 == 1)
     assert(len(epoch_data) % 2 == 1)
-    avg_trials, avg_targets = _make_pseudotrials_array(epoch_data, targets,
+    avg_trials, avg_targets = _make_pseudotrials_array(epoch_data,
+                                                       targets_conformed,
                                                        navg=navg)
     assert_equal(avg_trials.shape[0], -(-epoch_data.shape[0]//navg))
     assert_equal(len(np.unique(avg_targets)), n_conditions)

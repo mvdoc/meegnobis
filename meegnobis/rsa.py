@@ -8,6 +8,7 @@ from mne import EpochsArray
 from mne.cov import compute_whitener
 from numpy.testing import assert_array_equal
 from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.preprocessing.label import LabelEncoder
 
 from .metrics import CDIST_METRICS
 from .utils import _npairs, _get_unique_targets
@@ -300,8 +301,10 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
             "and it doesn't have fit/score attributes".format(
                 metric, sorted(CDIST_METRICS.keys())))
 
-    splits = cv.split(targets, targets)
-    n_splits = cv.get_n_splits(targets)
+    # fix targets
+    targets_, le = _conform_targets(targets)
+    splits = cv.split(targets_, targets_)
+    n_splits = cv.get_n_splits(targets_)
 
     # need to batch it for memory if more than 200 splits
     # trick from https://stackoverflow.com/questions/14822184/
@@ -312,7 +315,7 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
     for i_batch in range(n_batches):
         log.info("Running batch {0}/{1}".format(i_batch+1, n_batches))
         rdm_cv = Parallel(n_jobs=n_jobs)(
-            delayed(_compute_fold)(metric_fx, targets, train, test, epoch,
+            delayed(_compute_fold)(metric_fx, targets_, train, test, epoch,
                                    mean_groups=mean_groups,
                                    cv_normalize_noise=cv_normalize_noise,
                                    time_diag_only=time_diag_only)
@@ -326,7 +329,29 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
         del rdm_cv
     rdm /= n_splits
 
-    return rdm, targets_pairs[0]
+    return rdm, _invert_targets_pairs(targets_pairs[0], le)
+
+
+def _invert_targets_pairs(targets_pairs, label_encoder):
+    """
+    Given a list of targets pairs of the form 'target1+target2', revert back
+    to the original labeling by using `label_encoder.inverse_transform`
+
+    Parameters
+    ----------
+    targets_pairs : list or array-like of str
+    label_encoder : fitted LabelEncoder
+
+    Returns
+    -------
+    targets_pairs : list of str
+        the inversed targets_pairs
+    """
+    t1t2 = [l.split('+') for l in targets_pairs]
+    t1, t2 = zip(*t1t2)
+    t1 = [str(label_encoder.inverse_transform(int(t))) for t in t1]
+    t2 = [str(label_encoder.inverse_transform(int(t))) for t in t2]
+    return ['+'.join(t) for t in zip(t1, t2)]
 
 
 def _make_pseudotrials_array(array, targets, navg=4, rng=None):
@@ -401,12 +426,36 @@ def make_pseudotrials(epoch, targets, navg=4, rng=None):
         unique targets corresponding to the avg_trials
     """
     data = epoch.get_data()
-    data_avg, avg_targets = _make_pseudotrials_array(data, targets,
+    targets_, le = _conform_targets(targets)
+    data_avg, avg_targets = _make_pseudotrials_array(data, targets_,
                                                      navg=navg, rng=rng)
 
     avg_epoch = mne.EpochsArray(data_avg, tmin=epoch.times[-1],
                                 info=epoch.info)
+    # convert back to the original targets
+    avg_targets = [le.inverse_transform(t) for t in avg_targets]
     avg_epoch.events[:, -1] = avg_targets
     avg_epoch.baseline = epoch.baseline
 
     return avg_epoch, avg_targets
+
+
+def _conform_targets(targets):
+    """
+    Conform targets to  [0, n_targets-1].
+
+    Parameters
+    ----------
+    targets : array (n_targets, )
+
+    Returns
+    -------
+    targets_conformed : array (n_targets, )
+        targets are between 0 and n_targets-1
+    label_encoder : LabelEncoder
+        fit on targets, used to invert back using
+        label_encoder.inverse_transform
+    """
+    le = LabelEncoder()
+    le.fit(targets)
+    return le.transform(targets), le
