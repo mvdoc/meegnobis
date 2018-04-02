@@ -18,7 +18,8 @@ log.name = __name__
 
 
 def mean_group(array, targets):
-    """Average rows of array according to the unique values of targets
+    """
+    Average rows of array according to the unique values of targets
 
     Arguments
     ---------
@@ -157,7 +158,8 @@ def _multiv_normalize(epoch_train, epoch_test, cv_normalize_noise=None):
 def _compute_fold(metric_fx, targets, train, test, epoch,
                   cv_normalize_noise=None, mean_groups=False,
                   time_diag_only=False):
-    """Computes pairwise metric across time for one fold
+    """
+    Computes pairwise metric across time for one fold
 
     Arguments
     ---------
@@ -247,7 +249,8 @@ def compute_temporal_rdm(epoch, targets, metric='correlation',
                          cv_normalize_noise=None, mean_groups=False,
                          time_diag_only=False,
                          n_jobs=1, batch_size=200):
-    """Computes pairwise metric across time
+    """
+    Computes pairwise metric across time
 
     Arguments
     ---------
@@ -364,7 +367,8 @@ def _invert_targets_pairs(targets_pairs, label_encoder):
 
 
 def _make_pseudotrials_array(array, targets, navg=4, rng=None):
-    """Create pseudotrials by averaging within each group defined in `targets`
+    """
+    Create pseudotrials by averaging within each group defined in `targets`
     a number `navg` of trials. The trials are randomly divided into groups of
     size `navg` for each target. If the number of trials in a group is not
     divisible by `navg`, one pseudotrials will be created by averaging the
@@ -413,7 +417,8 @@ def _make_pseudotrials_array(array, targets, navg=4, rng=None):
 
 
 def make_pseudotrials(epoch, targets, navg=4, rng=None):
-    """Create pseudotrials by averaging within each group defined in `targets`
+    """
+    Create pseudotrials by averaging within each group defined in `targets`
     a number `navg` of trials. The trials are randomly divided into groups of
     size `navg` for each target. If the number of trials in a group is not
     divisible by `navg`, one pseudotrials will be created by averaging the
