@@ -80,7 +80,7 @@ def test_compute_fold(cv_normalize_noise):
     assert_array_equal(target_pairs_, target_pairs)
 
     # check that it fails if the targets are strings
-    targets = map(str, targets)
+    targets = list(map(str, targets))
     with pytest.raises(ValueError):
         rdms = _compute_fold(metric_fx, targets, train, test, epoch,
                              cv_normalize_noise=cv_normalize_noise,
@@ -176,10 +176,10 @@ def test_compute_temporal_rdm_targets():
     targets = epoch.events[:, 2]
     rdm, target_pairs = _run_target(targets)
 
-    targets_str = map(lambda x: str(x + 100), epoch.events[:, 2])
+    targets_str = list(map(lambda x: str(x + 100), epoch.events[:, 2]))
     rdm_str, target_pairs_str = _run_target(targets_str)
 
-    targets_weird = map(lambda x: x + 100, epoch.events[:, 2])
+    targets_weird = list(map(lambda x: x + 100, epoch.events[:, 2]))
     rdm_w, target_pairs_w = _run_target(targets_weird)
 
     assert_array_equal(rdm, rdm_str)
