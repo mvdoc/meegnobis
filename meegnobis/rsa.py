@@ -361,9 +361,9 @@ def _invert_targets_pairs(targets_pairs, label_encoder):
     """
     t1t2 = [l.split('+') for l in targets_pairs]
     t1, t2 = zip(*t1t2)
-    t1 = [str(label_encoder.inverse_transform(int(t))) for t in t1]
-    t2 = [str(label_encoder.inverse_transform(int(t))) for t in t2]
-    return ['+'.join(t) for t in zip(t1, t2)]
+    t1 = label_encoder.inverse_transform([int(t) for t in t1])
+    t2 = label_encoder.inverse_transform([int(t) for t in t2])
+    return ['+'.join([str(tt1), str(tt2)]) for tt1, tt2 in zip(t1, t2)]
 
 
 def _make_pseudotrials_array(array, targets, navg=4, rng=None):
@@ -448,9 +448,11 @@ def make_pseudotrials(epoch, targets, navg=4, rng=None):
                                 info=epoch.info)
     # convert back to the original targets
     avg_epoch.events[:, -1] = avg_targets
-    avg_epoch.event_id = {
-        le.inverse_transform(t): t for t in np.unique(avg_targets)}
-    avg_targets = [le.inverse_transform(t) for t in avg_targets]
+    unique_avg_targets = np.unique(avg_targets)
+    event_id = le.inverse_transform(unique_avg_targets)
+    avg_epoch.event_id = {eid: uat for eid, uat in zip(event_id,
+                                                       unique_avg_targets)}
+    avg_targets = le.inverse_transform(avg_targets)
     avg_epoch.baseline = epoch.baseline
 
     return avg_epoch, avg_targets
